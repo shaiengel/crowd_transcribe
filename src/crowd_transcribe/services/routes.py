@@ -1,15 +1,10 @@
-from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from crowd_transcribe.domain.exceptions import ConflictError, NotFoundError
 from crowd_transcribe.domain.schema import (
     Audio,
     AudioList,
     CreateTaskRequest,
-    Submission,
-    Task,
     TaskCreated,
     TaskDetail,
     SubmitTaskRequest,
@@ -18,7 +13,6 @@ from crowd_transcribe.services.audio_service import AudioService
 from crowd_transcribe.services.tasks_service import TasksService
 
 router = APIRouter(prefix="/api/v1")
-session_bearer = HTTPBearer()
 
 
 # ---------------------------------------------------------------------------
@@ -89,24 +83,3 @@ async def submit_task(
         svc.submit_task(task_id=id, text=body.text)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
-
-
-# ---------------------------------------------------------------------------
-# Subtitles
-# ---------------------------------------------------------------------------
-
-@router.get("/tasks/{id}/subtitles")
-async def get_subtitles(
-    id: UUID,
-    credentials: HTTPAuthorizationCredentials = Depends(session_bearer),
-) -> Response:
-    raise NotImplementedError
-
-
-@router.post("/tasks/{id}/subtitles", response_model=Submission)
-async def submit_subtitles(
-    id: UUID,
-    request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(session_bearer),
-) -> Submission:
-    raise NotImplementedError

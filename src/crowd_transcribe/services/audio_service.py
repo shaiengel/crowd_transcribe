@@ -1,8 +1,8 @@
 import logging
-import sqlite3
 
 from crowd_transcribe.config import Config
 from crowd_transcribe.domain.schema import Audio, AudioList
+from crowd_transcribe.infrastructure.sqlite_db import get_audio_row, list_audio_rows
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +13,7 @@ class AudioService:
 
     def get_audio(self, media_id: str) -> Audio | None:
         logger.info("get_audio: media_id=%s", media_id)
-        with sqlite3.connect(self._db_path) as conn:
-            row = conn.execute(
-                """SELECT media_id, url, maggid_description, massechet_name,
-                          daf_name, media_duration
-                   FROM media WHERE media_id = ?""",
-                (media_id,),
-            ).fetchone()
+        row = get_audio_row(self._db_path, media_id)
         if row is None:
             logger.warning("get_audio: media_id=%s not found", media_id)
             return None
@@ -28,17 +22,7 @@ class AudioService:
 
     def list_audios(self, limit: int, offset: int) -> AudioList:
         logger.info("list_audios: limit=%d offset=%d", limit, offset)
-        with sqlite3.connect(self._db_path) as conn:
-            total: int = conn.execute("SELECT COUNT(*) FROM media").fetchone()[0]
-
-            rows = conn.execute(
-                """SELECT media_id, url, maggid_description, massechet_name,
-                          daf_name, media_duration
-                   FROM media
-                   LIMIT ? OFFSET ?""",
-                (limit, offset),
-            ).fetchall()
-
+        total, rows = list_audio_rows(self._db_path, limit, offset)
         logger.info("list_audios: returning %d/%d records", len(rows), total)
         data = [
             Audio(id=r[0], url=r[1], maggid_description=r[2],

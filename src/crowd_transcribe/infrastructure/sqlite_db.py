@@ -89,6 +89,32 @@ def get_existing_ids(db_path: str) -> set[str]:
     return {row[0] for row in rows}
 
 
+def get_audio_row(db_path: str, media_id: str) -> tuple | None:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            """SELECT media_id, url, maggid_description, massechet_name,
+                      daf_name, media_duration
+               FROM media WHERE media_id = ?""",
+            (media_id,),
+        ).fetchone()
+
+
+def list_audio_rows(db_path: str, limit: int, offset: int) -> tuple[int, list[tuple]]:
+    with sqlite3.connect(db_path) as conn:
+        total: int = conn.execute(
+            "SELECT COUNT(*) FROM media WHERE media_id NOT IN (SELECT media_id FROM tasks)"
+        ).fetchone()[0]
+        rows = conn.execute(
+            """SELECT media_id, url, maggid_description, massechet_name,
+                      daf_name, media_duration
+               FROM media
+               WHERE media_id NOT IN (SELECT media_id FROM tasks)
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+    return total, rows
+
+
 def insert_media(db_path: str, media_id: str, url: str,
                  maggid_description: str | None = None,
                  massechet_id: str | None = None,
