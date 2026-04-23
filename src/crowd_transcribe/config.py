@@ -12,6 +12,7 @@ class Config:
     aws_region: str = field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
     aws_profile: str = field(default_factory=lambda: os.getenv("AWS_PROFILE", "portal"))
     s3_bucket: str = field(default_factory=lambda: os.getenv("S3_BUCKET", ""))
+    s3_fixed_bucket: str = field(default_factory=lambda: os.getenv("S3_FIXED_BUCKET", "crowd-fixed-subtitles"))
     db_host: str = field(default_factory=lambda: os.getenv("DB_HOST", "127.0.0.1"))
     db_port: str = field(default_factory=lambda: os.getenv("DB_PORT", "1433"))
     db_name: str = field(default_factory=lambda: os.getenv("DB_NAME", ""))

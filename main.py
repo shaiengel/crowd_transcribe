@@ -1,10 +1,18 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from fastapi import FastAPI
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+_fmt = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+logging.basicConfig(level=logging.INFO, format=_fmt)
+
+Path("log").mkdir(exist_ok=True)
+_file_handler = RotatingFileHandler("log/app.log", maxBytes=10_000_000, backupCount=3, encoding="utf-8")
+_file_handler.setFormatter(logging.Formatter(_fmt))
+logging.getLogger().addHandler(_file_handler)
 
 from crowd_transcribe.infrastructure.dependency_injection import DependenciesContainer
 from crowd_transcribe.services.routes import router

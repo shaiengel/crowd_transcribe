@@ -5,6 +5,7 @@ from crowd_transcribe.config import Config
 from crowd_transcribe.infrastructure.s3_client import S3Client
 from crowd_transcribe.services.audio_service import AudioService
 from crowd_transcribe.services.media_sync import MediaSyncService
+from crowd_transcribe.services.tasks_service import TasksService
 
 
 def _create_session(config: Config) -> boto3.Session:
@@ -26,3 +27,5 @@ class DependenciesContainer(containers.DeclarativeContainer):
     media_sync = providers.Singleton(MediaSyncService, file_manager=s3_client, config=config)
 
     audio_service = providers.Singleton(AudioService, config=config)
+
+    tasks_service = providers.Singleton(TasksService, config=config, s3_client=s3_client)

@@ -6,10 +6,9 @@ from pydantic import BaseModel
 
 
 class TaskStatus(str, Enum):
-    active = "active"
-    submitted = "submitted"
-    expired = "expired"
-    abandoned = "abandoned"
+    PENDING = "PENDING"
+    STARTED = "STARTED"
+    FINISHED = "FINISHED"
 
 
 class Audio(BaseModel):
@@ -29,19 +28,18 @@ class AudioList(BaseModel):
 
 
 class Task(BaseModel):
-    task_id: UUID
-    audio_id: UUID
+    task_id: str
+    media_id: str
     status: TaskStatus
-    expires_at: int
-    seconds_remaining: Optional[int] = None
 
 
 class TaskCreated(BaseModel):
-    task_id: UUID
-    session_token: str
-    audio: Audio
-    expires_at: int
-    seconds_remaining: int
+    task_id: str
+
+
+class TaskDetail(BaseModel):
+    media_link: str
+    subtitles: str
 
 
 class Submission(BaseModel):
@@ -54,4 +52,8 @@ class Submission(BaseModel):
 
 
 class CreateTaskRequest(BaseModel):
-    audio_id: UUID
+    media_id: str
+
+
+class SubmitTaskRequest(BaseModel):
+    text: str
