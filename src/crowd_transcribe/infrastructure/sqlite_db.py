@@ -133,7 +133,7 @@ def get_audio_row(db_path: str, media_id: str) -> tuple | None:
         ).fetchone()
 
 
-def list_audio_rows(db_path: str, limit: int, offset: int) -> tuple[int, list[tuple]]:
+def list_audio_rows(db_path: str) -> tuple[int, list[tuple]]:
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(
             "SELECT COUNT(*) FROM media WHERE media_id NOT IN (SELECT media_id FROM tasks)"
@@ -142,9 +142,7 @@ def list_audio_rows(db_path: str, limit: int, offset: int) -> tuple[int, list[tu
             """SELECT media_id, url, maggid_description, massechet_name,
                       daf_name, media_duration
                FROM media
-               WHERE media_id NOT IN (SELECT media_id FROM tasks)
-               LIMIT ? OFFSET ?""",
-            (limit, offset),
+               WHERE media_id NOT IN (SELECT media_id FROM tasks)"""
         ).fetchall()
     return total, rows
 

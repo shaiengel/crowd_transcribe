@@ -30,6 +30,10 @@ class MediaSyncService:
         new_ids = s3_ids - existing_ids
         logger.info("media_sync: %d new IDs to resolve from MSSQL", len(new_ids))
 
+        if not new_ids:
+            logger.info("media_sync: nothing to resolve — done")
+            return
+
         resolved = 0
         with get_connection() as conn:
             for media_id in new_ids:

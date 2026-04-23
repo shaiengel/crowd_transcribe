@@ -20,11 +20,17 @@ class Audio(BaseModel):
     duration: Optional[int] = None
 
 
+class AudioListItem(BaseModel):
+    id: str
+    maggid_description: Optional[str] = None
+    massechet_name: Optional[str] = None
+    daf_name: Optional[str] = None
+    duration: Optional[int] = None
+
+
 class AudioList(BaseModel):
-    data: list[Audio]
+    data: list[AudioListItem]
     total: int
-    offset: int
-    limit: int
 
 
 class Task(BaseModel):

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from crowd_transcribe.domain.exceptions import ConflictError, NotFoundError
 from crowd_transcribe.domain.schema import (
@@ -26,11 +26,9 @@ def _audio_service(request: Request) -> AudioService:
 
 @router.get("/audios", response_model=AudioList)
 async def list_audios(
-    limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
     svc: AudioService = Depends(_audio_service),
 ) -> AudioList:
-    return svc.list_audios(limit=limit, offset=offset)
+    return svc.list_audios()
 
 
 @router.get("/audios/{id}", response_model=Audio)
