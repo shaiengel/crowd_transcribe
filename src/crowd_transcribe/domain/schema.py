@@ -57,3 +57,9 @@ class CreateTaskRequest(BaseModel):
 
 class SubmitTaskRequest(BaseModel):
     text: str
+
+
+class TaskEnrichment(BaseModel):
+    task_id: str
+    media_id: str
+    text: Optional[str] = None

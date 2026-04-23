@@ -4,11 +4,14 @@ import uuid
 from crowd_transcribe.config import Config
 from crowd_transcribe.domain.exceptions import ConflictError, NotFoundError
 from crowd_transcribe.domain.file_manager import FileManager
-from crowd_transcribe.domain.schema import TaskDetail, TaskStatus
+from crowd_transcribe.domain.schema import TaskDetail, TaskEnrichment, TaskStatus
+from crowd_transcribe.infrastructure.sefaria_client import SefariaClient
 from crowd_transcribe.infrastructure.sqlite_db import (
+    delete_task,
     finish_task,
     get_active_task_for_media,
     get_media_url,
+    get_task_enrichment,
     get_task_media_id,
     insert_task,
     task_exists,
@@ -24,6 +27,7 @@ class TasksService:
         self._bucket = config.s3_bucket
         self._fixed_bucket = config.s3_fixed_bucket
         self._s3 = s3_client
+        self._sefaria = SefariaClient()
 
     def create_task(self, media_id: str) -> str:
         logger.info("create_task: media_id=%s", media_id)
@@ -54,6 +58,28 @@ class TasksService:
         update_task_status(self._db_path, task_id, TaskStatus.STARTED)
         logger.info("get_task: task_id=%s status -> %s", task_id, TaskStatus.STARTED)
         return TaskDetail(media_link=url, subtitles=vtt)
+
+    def enrich_task(self, task_id: str) -> TaskEnrichment:
+        logger.info("enrich_task: task_id=%s", task_id)
+        row = get_task_enrichment(self._db_path, task_id)
+        if row is None:
+            logger.warning("enrich_task: task_id=%s not found", task_id)
+            raise NotFoundError(f"task {task_id} not found")
+        media_id, _massechet_id, massechet_name, daf_id = row
+        text = None
+        if massechet_name and daf_id:
+            try:
+                text = self._sefaria.fetch_daf(massechet_name, int(daf_id))
+            except Exception as e:
+                logger.warning("enrich_task: Sefaria fetch failed for task_id=%s: %s", task_id, e)
+        return TaskEnrichment(task_id=task_id, media_id=media_id, text=text)
+
+    def delete_task(self, task_id: str) -> None:
+        logger.info("delete_task: task_id=%s", task_id)
+        if not delete_task(self._db_path, task_id):
+            logger.warning("delete_task: task_id=%s not found", task_id)
+            raise NotFoundError(f"task {task_id} not found")
+        logger.info("delete_task: task_id=%s deleted", task_id)
 
     def submit_task(self, task_id: str, text: str) -> None:
         logger.info("submit_task: task_id=%s", task_id)

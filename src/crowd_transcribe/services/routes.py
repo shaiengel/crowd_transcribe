@@ -7,6 +7,7 @@ from crowd_transcribe.domain.schema import (
     CreateTaskRequest,
     TaskCreated,
     TaskDetail,
+    TaskEnrichment,
     SubmitTaskRequest,
 )
 from crowd_transcribe.services.audio_service import AudioService
@@ -69,6 +70,28 @@ async def get_task(
 ) -> TaskDetail:
     try:
         return svc.get_task(task_id=id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/tasks/{id}/enrich", response_model=TaskEnrichment)
+async def enrich_task(
+    id: str,
+    svc: TasksService = Depends(_tasks_service),
+) -> TaskEnrichment:
+    try:
+        return svc.enrich_task(task_id=id)
+    except NotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.delete("/tasks/{id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_task(
+    id: str,
+    svc: TasksService = Depends(_tasks_service),
+) -> None:
+    try:
+        svc.delete_task(task_id=id)
     except NotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
