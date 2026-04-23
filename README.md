@@ -138,3 +138,15 @@ uv sync                  # install dependencies
 uv run python main.py    # start the server
 uv run local_test        # run local Lambda test (once local_test.py exists)
 ```
+
+---
+
+## Production server
+
+```bash
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+**Base URL:** `https://ai.daf-yomi.com/api/v1/crowd`
+
+**Authentication:** All requests require the `X-API-Key` header with a valid secret key.
