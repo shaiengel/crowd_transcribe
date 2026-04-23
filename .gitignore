@@ -11,5 +11,4 @@ settings.local.json
 .venv
 
 # Environment variables
-.env
 .env.secret
