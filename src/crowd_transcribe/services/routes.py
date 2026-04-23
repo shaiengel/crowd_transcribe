@@ -13,7 +13,7 @@ from crowd_transcribe.domain.schema import (
 from crowd_transcribe.services.audio_service import AudioService
 from crowd_transcribe.services.tasks_service import TasksService
 
-router = APIRouter(prefix="/api/v1")
+router = APIRouter(prefix="/api/v1/crowd")
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ MSSQL [dbo].[View_Media]
 SQLite  (media, tasks, massechet tables)
   │
   ▼
-FastAPI  /api/v1
+FastAPI  /api/v1/crowd
   ├── GET  /audios            → list unclaimed audios
   ├── GET  /audios/{id}       → audio details
   ├── POST /tasks             → claim audio (creates PENDING task)

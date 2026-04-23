@@ -13,7 +13,7 @@ info:
     4. The client submits the corrected text.
 
 servers:
-  - url: /api/v1
+  - url: /api/v1/crowd
     description: Versioned API root
 
 tags:
