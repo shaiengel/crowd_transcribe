@@ -1,385 +1,140 @@
 # Crowd Transcription Fixer — Backend Service
 
-## What this service does
-
-A lightweight crowd-sourcing backend. Volunteers visit the web app, pick an
-audio file, listen to it, fix the auto-generated subtitles, and submit the
-corrected version. The backend manages the queue of audios, prevents two people
-editing the same file simultaneously, serves the original VTT, and stores the
-fixed VTT in S3.
-
-The service is intentionally low-scale. SQLite is the operational database.
-No message queue, no worker processes, no external cache.
+A crowd-sourcing backend where volunteers fix auto-generated subtitles for Talmud audio recordings. Volunteers browse available audios, listen, correct the subtitle text, and submit.
 
 ---
 
 ## Architecture
 
 ```
- (external, read-only)
-  │  synced on startup + POST /admin/sync
+S3 (original .vtt files)
+  │  listed on sync to discover new media IDs
   ▼
-SQLite  ◄──────────────────────────────────────────────────────────┐
-  │ audios, tasks, submissions                                     │
-  ▼                                                                │
-HTTP API (this service)                                            │
-  ├── GET  /api/v1/audios          → list available audios         │
-  ├── POST /api/v1/tasks           → claim audio, get session token│
-  ├── GET  /api/v1/tasks/:id/subtitles  → stream VTT from S3      │
-  ├── POST /api/v1/tasks/:id/subtitles  → accept fixed VTT ────── writes fixed VTT to S3
-  └── DELETE /api/v1/tasks/:id    → release lock voluntarily      │
-                                                                   │
-AWS S3                                                             │
-  ├── originals/<audio-id>.vtt    (read by backend, never client) │
-  ├── fixed/<audio-id>/<submission-id>.vtt  (written on submit) ──┘
-  └── (audio files are NOT in S3 — URLs come from MSSQL)
+MSSQL [dbo].[View_Media]
+  │  metadata fetched per ID and stored locally
+  ▼
+SQLite  (media, tasks, massechet tables)
+  │
+  ▼
+FastAPI  /api/v1
+  ├── GET  /audios            → list unclaimed audios
+  ├── GET  /audios/{id}       → audio details
+  ├── POST /tasks             → claim audio (creates PENDING task)
+  ├── GET  /tasks/{id}        → fetch media URL + VTT → status → STARTED
+  ├── GET  /tasks/{id}/enrich → fetch Sefaria Gemara text for the daf
+  ├── POST /tasks/{id}/submit → submit corrected text → writes to S3 → FINISHED
+  └── DELETE /tasks/{id}      → remove task
 ```
 
-**Audio files are served directly by the client from the URL stored in MSSQL.**
-The backend never proxies audio. It only proxies VTT (to enforce auth).
+**Media sync** runs daily and on startup: lists `.vtt` keys in S3, fetches metadata for new IDs from MSSQL, inserts into SQLite.
 
----
+**Task lifecycle:** `PENDING` (created) → `STARTED` (media fetched) → `FINISHED` (text submitted).
 
-## Tech stack
-
-Pick one of these two implementations — both fit equally well:
-
-| | Python | Node |
-|---|---|---|
-| Framework | FastAPI | Fastify |
-| SQLite driver | `aiosqlite` | `better-sqlite3` |
-| MSSQL driver | `aioodbc` / `pymssql` | `mssql` / `tedious` |
-| AWS SDK | `boto3` | `@aws-sdk/client-s3` |
-| VTT validation | `webvtt-py` | `node-webvtt` |
-| Session tokens | `python-jose` (HMAC-SHA256 JWT) | `jose` |
-
-Prefer **Python + FastAPI** unless the team already owns a Node stack.
+**Enrichment:** `GET /tasks/{id}/enrich` calls the [Sefaria API](https://www.sefaria.org.il) to return the corresponding Gemara text for the daf, which volunteers can use as a reference while correcting.
 
 ---
 
 ## Project layout
 
 ```
-src/
-  main.py               # app factory, startup hook (MSSQL sync), scheduler
-  config.py             # settings from env (pydantic-settings or python-dotenv)
-  db/
-    connection.py       # SQLite connection pool (aiosqlite), WAL mode setup
-    migrations.py       # run DDL on startup if tables don't exist
-    schema.sql          # canonical DDL (see Database section below)
-  mssql/
-    client.py           # connect, query, close
-    sync.py             # pull from MSSQL → upsert into SQLite
-  s3/
-    client.py           # boto3 wrapper: get_object, put_object, presign
-  auth/
-    session.py          # issue and verify session tokens (HMAC JWT)
-    admin.py            # verify static admin key from env
-  routers/
-    audios.py           # GET /audios, GET /audios/:id
-    tasks.py            # POST /tasks, GET /tasks/:id, DELETE /tasks/:id
-    subtitles.py        # GET and POST /tasks/:id/subtitles
-    admin.py            # /admin/* endpoints
-  services/
-    task_service.py     # claim logic (atomic lock), abandon, status check
-    submission_service.py  # validate VTT, write to S3, update DB
-    sweep_service.py    # expire stale tasks, release audios
-  models/
-    audio.py
-    task.py
-    submission.py
-  vtt/
-    validator.py        # parse and validate incoming VTT bytes
-openapi.yaml            # API contract (source of truth for endpoint shapes)
-CLAUDE.md               # this file
-.env.example
+src/crowd_transcribe/
+├── config.py                    — env var dataclass
+├── domain/
+│   ├── exceptions.py            — ConflictError, NotFoundError
+│   ├── file_manager.py          — FileManager protocol (S3 abstraction)
+│   └── schema.py                — Pydantic models
+├── infrastructure/
+│   ├── database.py              — MSSQL connection via SQLAlchemy + pyodbc
+│   ├── dependency_injection.py  — dependency-injector DI container
+│   ├── s3_client.py             — boto3 S3 wrapper
+│   ├── sefaria_client.py        — Sefaria REST API client
+│   └── sqlite_db.py             — SQLite helpers + schema init
+└── services/
+    ├── audio_service.py         — browse audios from SQLite
+    ├── media_sync.py            — S3 → MSSQL → SQLite sync loop
+    ├── routes.py                — FastAPI router
+    └── tasks_service.py         — task lifecycle and submit logic
+openapi.yaml                     — API contract
 ```
 
 ---
 
-## Database
+## Tech stack
 
-Run migrations on startup before accepting requests. Never modify production
-rows by hand — use the admin endpoints.
+| Layer | Library |
+|---|---|
+| API framework | FastAPI |
+| SQLite | `sqlite3` (stdlib) |
+| MSSQL | SQLAlchemy + `pyodbc` |
+| AWS S3 | `boto3` |
+| Sefaria text | `httpx` |
+| DI | `dependency-injector` |
+| Package manager | `uv` |
+
+---
+
+## Database schema
 
 ```sql
--- schema.sql
-
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS audios (
-  id               TEXT PRIMARY KEY,      -- UUID from MSSQL, stored as text
-  title            TEXT NOT NULL,
-  audio_url        TEXT NOT NULL,         -- direct URL from MSSQL; opaque to backend
-  subtitle_s3_key  TEXT NOT NULL,         -- e.g. originals/abc.vtt
-  duration_seconds INTEGER,
-  language         TEXT,
-  status           TEXT NOT NULL DEFAULT 'available'
-                   CHECK (status IN ('available','in_progress','completed','retired')),
-  synced_at        INTEGER NOT NULL       -- unix timestamp of last MSSQL sync
+CREATE TABLE media (
+    media_id            TEXT PRIMARY KEY,
+    url                 TEXT NOT NULL,
+    maggid_description  TEXT,
+    massechet_id        TEXT,
+    massechet_name      TEXT,
+    daf_id              TEXT,
+    daf_name            TEXT,
+    language            TEXT,
+    media_duration      INTEGER,
+    file_type           TEXT
 );
 
-CREATE TABLE IF NOT EXISTS tasks (
-  id             TEXT PRIMARY KEY,        -- UUID generated by backend
-  audio_id       TEXT NOT NULL REFERENCES audios(id),
-  session_token  TEXT NOT NULL UNIQUE,    -- HMAC-signed JWT, stored for revocation
-  status         TEXT NOT NULL DEFAULT 'active'
-                 CHECK (status IN ('active','submitted','expired','abandoned')),
-  locked_at      INTEGER NOT NULL,        -- unix timestamp
-  expires_at     INTEGER NOT NULL         -- locked_at + TASK_TTL_SECONDS
+CREATE TABLE tasks (
+    task_id         TEXT PRIMARY KEY,
+    media_id        TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING | STARTED | FINISHED
+    submitted_text  TEXT
 );
 
-CREATE TABLE IF NOT EXISTS submissions (
-  id            TEXT PRIMARY KEY,         -- UUID generated by backend
-  task_id       TEXT NOT NULL REFERENCES tasks(id),
-  audio_id      TEXT NOT NULL REFERENCES audios(id),
-  fixed_s3_key  TEXT NOT NULL,            -- fixed/<audio_id>/<submission_id>.vtt
-  submitted_at  INTEGER NOT NULL,
-  byte_size     INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_audios_status   ON audios(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_audio_id  ON tasks(audio_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_status    ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_expires   ON tasks(expires_at);
+CREATE TABLE massechet (
+    id   TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+);  -- seeded with tractate name → Sefaria name mapping
 ```
 
-**Rule: never UPDATE `audios.status` directly in route handlers.**
-Always go through `task_service` so the lock and status transition are atomic.
+`list_audios` returns media not yet referenced by any task row.
 
 ---
 
 ## Environment variables
 
 ```env
-# .env.example
+# AWS
+AWS_REGION=us-east-1
+AWS_PROFILE=portal
+S3_BUCKET=<bucket with original .vtt files>
+S3_FIXED_BUCKET=crowd-fixed-subtitles
+
+# MSSQL
+DB_HOST=127.0.0.1
+DB_PORT=1433
+DB_NAME=
+DB_USER=
+DB_PASSWORD=
+DB_DRIVER_WINDOWS=ODBC Driver 17 for SQL Server
 
 # SQLite
-SQLITE_PATH=./data/transcription.db
-
-# MSSQL (read-only connection for metadata sync)
-MSSQL_HOST=db.example.com
-MSSQL_PORT=1433
-MSSQL_DATABASE=MediaAssets
-MSSQL_USER=readonly_user
-MSSQL_PASSWORD=secret
-MSSQL_QUERY=SELECT id, title, audio_url, subtitle_s3_key, duration_seconds, language FROM AudioAssets WHERE is_active = 1
-
-# AWS S3
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-S3_BUCKET=transcription-assets
-
-# S3 key prefixes (no trailing slash)
-S3_PREFIX_FIXED=fixed
-
-# Auth
-SESSION_TOKEN_SECRET=<random 32+ byte hex string>   # HMAC key for session tokens
-TASK_TTL_SECONDS=7200                                # 2 hours
-ADMIN_API_KEY=<random secret>                        # static key for /admin/* routes
-
-# Background sweep
-SWEEP_INTERVAL_SECONDS=900   # 15 minutes
-
-# Startup sync
-SYNC_ON_STARTUP=true
+SQLITE_PATH=media.db
 ```
 
-Never commit real credentials. Generate `SESSION_TOKEN_SECRET` with:
-`python -c "import secrets; print(secrets.token_hex(32))"`
-
----
-
-## MSSQL sync
-
-The sync runs at startup (if `SYNC_ON_STARTUP=true`) and on `POST /admin/sync`.
-
-Key contract:
-- `ON CONFLICT(id) DO UPDATE` — refresh metadata columns freely.
-- **Never overwrite `status`** — it is owned by this service, not MSSQL.
-- Audios absent from the MSSQL result set are set to `status = 'retired'` and
-  hidden from the public `/audios` listing. Their tasks and submissions are
-  preserved.
-
-The MSSQL query is configurable via `MSSQL_QUERY` env var so it can be tuned
-without a code deploy.
-
----
-
-## Task locking — critical section
-
-Claiming an audio must be atomic. Use a SQLite transaction:
-
-```python
-async with db.transaction():
-    audio = await db.fetchone(
-        "SELECT * FROM audios WHERE id = ? AND status = 'available'", [audio_id]
-    )
-    if not audio:
-        raise ConflictError("AUDIO_NOT_AVAILABLE")
-
-    task_id = str(uuid4())
-    now = int(time())
-    token = issue_session_token(task_id)   # HMAC JWT
-
-    await db.execute(
-        "UPDATE audios SET status = 'in_progress' WHERE id = ?", [audio_id]
-    )
-    await db.execute(
-        """INSERT INTO tasks (id, audio_id, session_token, locked_at, expires_at)
-           VALUES (?, ?, ?, ?, ?)""",
-        [task_id, audio_id, token, now, now + settings.TASK_TTL_SECONDS]
-    )
-```
-
-The `SELECT ... AND status = 'available'` inside the same transaction is the
-guard. SQLite's serialised writers mean this is safe without advisory locks.
-
----
-
-## VTT validation
-
-Before writing to S3, validate the submitted content:
-
-1. Strip leading/trailing whitespace.
-2. Confirm the file starts with `WEBVTT` (case-sensitive, per spec).
-3. Parse all cue blocks — check timestamp format and that end > start.
-4. Reject if zero cues are found (empty file).
-5. Size limit: reject if `len(content_bytes) > 5_000_000` (5 MB).
-
-Return `422 Unprocessable Entity` with a descriptive `error` string pointing
-to the offending line number if validation fails. Do not write partial content
-to S3.
-
----
-
-## S3 key conventions
-
-```
-originals/<audio-id>.vtt          # original machine-generated VTT (read-only)
-fixed/<audio-id>/<submission-id>.vtt  # submitted fix
-```
-
-Use the audio ID directly — no hashing, no random prefixes. The bucket is not
-publicly accessible; all access goes through the backend or admin presigned URLs.
-
----
-
-## Background sweep
-
-A repeating timer (APScheduler, asyncio loop, or equivalent) runs every
-`SWEEP_INTERVAL_SECONDS`:
-
-```sql
--- Step 1: expire overdue active tasks
-UPDATE tasks
-SET status = 'expired'
-WHERE status = 'active' AND expires_at < unixepoch();
-
--- Step 2: release their audios
-UPDATE audios
-SET status = 'available'
-WHERE status = 'in_progress'
-  AND id NOT IN (
-    SELECT audio_id FROM tasks WHERE status = 'active'
-  );
-```
-
-Run both statements in a single transaction. Log the number of rows affected
-at INFO level. The sweep also runs on startup after the MSSQL sync.
-
----
-
-## Error codes
-
-All error responses are `{ "error": "...", "code": "..." }`.
-
-| Code | HTTP status | When |
-|---|---|---|
-| `AUDIO_NOT_AVAILABLE` | 409 | Audio is not `available` when claiming |
-| `TASK_EXPIRED` | 410 | Task TTL has passed |
-| `TASK_NOT_ACTIVE` | 409 | Task is submitted/abandoned, not active |
-| `UNAUTHORIZED` | 401 | Missing, invalid, or mismatched session token |
-| `NOT_FOUND` | 404 | Resource does not exist |
-| `VTT_INVALID` | 422 | Submitted VTT failed parsing |
-| `S3_ERROR` | 502 | S3 operation failed (log full error, return generic message) |
-| `MSSQL_UNAVAILABLE` | 502 | Cannot connect to MSSQL during sync |
-
-Never expose raw exception messages, S3 keys, or MSSQL query details in error
-responses. Log the full detail server-side.
-
----
-
-## Key business rules
-
-1. **One active task per audio at a time.** The atomic transaction in claim
-   enforces this. Do not add an `available` shortcut that bypasses the lock.
-
-2. **`status` column in `audios` is owned by this service.** MSSQL sync never
-   touches it. The only valid transitions are:
-   `available → in_progress` (claim)
-   `in_progress → available` (abandon or sweep)
-   `in_progress → completed` (submit)
-   `any → retired` (MSSQL sync, audio removed from source)
-
-3. **The backend never proxies audio.** It returns the `audio_url` from SQLite
-   and the client fetches it directly. Do not add a `/tasks/:id/audio` proxy
-   endpoint.
-
-4. **VTT is always proxied through the backend.** Never return an S3 presigned
-   URL for the original VTT to the client. Presigned URLs are only for admin
-   submission downloads.
-
-5. **One submission per task.** Once a task reaches `submitted`, further POST
-   to `/tasks/:id/subtitles` returns `409 TASK_NOT_ACTIVE`. If a fix needs to
-   be redone, an admin resets the audio via `POST /admin/audios/:id/reset`.
-
-6. **Session tokens are scoped to a single task.** A token issued for task A
-   must be rejected when used on task B, even if both belong to the same audio.
-   Encode the task ID in the JWT payload and verify it matches the URL parameter.
+Secrets go in `.env.secret` (loaded after `.env`, takes precedence).
 
 ---
 
 ## Running locally
 
 ```bash
-# Install deps (Python example)
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Copy and fill in env
-cp .env.example .env
-
-# Start (runs MSSQL sync then begins accepting requests)
-uvicorn src.main:app --reload --port 8000
-
-# API docs (auto-generated from OpenAPI spec)
-open http://localhost:8000/docs
+uv sync                  # install dependencies
+uv run python main.py    # start the server
+uv run local_test        # run local Lambda test (once local_test.py exists)
 ```
-
-For local development without MSSQL, set `SYNC_ON_STARTUP=false` and seed
-`audios` directly into SQLite using the fixture script:
-
-```bash
-python scripts/seed_dev.py
-```
-
----
-
-## What to implement first
-
-Work in this order to get a testable end-to-end flow quickly:
-
-1. `db/` — SQLite setup, schema, WAL mode
-2. `config.py` — env var loading
-3. `mssql/sync.py` — sync + seed script fallback
-4. `auth/session.py` — token issue/verify
-5. `routers/audios.py` — GET /audios (read-only, easiest)
-6. `services/task_service.py` + `routers/tasks.py` — claim/abandon/status
-7. `s3/client.py` — get and put wrappers
-8. `vtt/validator.py` — VTT parser
-9. `routers/subtitles.py` — stream original, accept submission
-10. `services/sweep_service.py` — expiry sweep + scheduler
-11. `routers/admin.py` — admin endpoints last
