@@ -5,6 +5,25 @@ from typing import Optional
 from pydantic import BaseModel
 
 
+class MaggidAccent(int, Enum):
+    ASHKENZY = 1
+    SEPHARDI = 2
+    CHASSIDIC = 3
+    ISRAELI = 4
+    OTHER = 5
+
+class Language(int, Enum):
+    HEBREW = 1
+    ENGLISH = 2
+    YIDDISH = 3
+    SPANISH = 4
+    ARABIC = 5
+    FRENCH = 6
+    GERMAN = 7
+    RUSSIAN = 9   
+
+
+
 class TaskStatus(str, Enum):
     PENDING = "PENDING"
     STARTED = "STARTED"
