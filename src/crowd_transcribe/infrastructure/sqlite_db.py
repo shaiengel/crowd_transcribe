@@ -276,6 +276,28 @@ def get_audio_row(db_path: str, media_id: str) -> tuple | None:
         ).fetchone()
 
 
+def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) -> tuple[int, list[tuple]]:
+    where = (
+        "media.maggid_id = maggid_data.id "
+        "AND maggid_data.accent = ? "
+        "AND maggid_data.language = ? "
+        "AND media.media_id NOT IN (SELECT media_id FROM tasks)"
+    )
+    params = (accent, language)
+    with sqlite3.connect(db_path) as conn:
+        total: int = conn.execute(
+            f"SELECT COUNT(*) FROM media JOIN maggid_data ON {where}",
+            params,
+        ).fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT media.media_id, media.url, media.maggid_description,
+                       media.massechet_name, media.daf_name, media.media_duration
+                FROM media JOIN maggid_data ON {where}""",
+            params,
+        ).fetchall()
+    return total, rows
+
+
 def list_audio_rows(db_path: str) -> tuple[int, list[tuple]]:
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(

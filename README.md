@@ -17,16 +17,17 @@ SQLite  (media, tasks, massechet tables)
   │
   ▼
 FastAPI  /api/v1/crowd
-  ├── GET  /audios            → list unclaimed audios
+  ├── GET  /audios            → random unclaimed audio (optional: ?reading=&language=)
+  ├── GET  /audios/list       → list unclaimed audios
   ├── GET  /audios/{id}       → audio details
   ├── POST /tasks             → claim audio (creates PENDING task)
-  ├── GET  /tasks/{id}        → fetch media URL + VTT → status → STARTED
+  ├── GET  /tasks/{id}        → fetch media URL + VTT (fixed bucket first, fallback to source) → status → STARTED
   ├── GET  /tasks/{id}/enrich → fetch Sefaria Gemara text for the daf
   ├── POST /tasks/{id}/submit → submit corrected text → writes to S3 → FINISHED
   └── DELETE /tasks/{id}      → remove task
 ```
 
-**Media sync** runs daily and on startup: lists `.vtt` keys in S3, fetches metadata for new IDs from MSSQL, inserts into SQLite.
+**Media sync** runs daily and on startup: lists `.vtt` keys in `S3_BUCKET_VTT` and `.mp3` keys in `S3_BUCKET_MP3`, keeps only IDs that have both, fetches metadata for new IDs from MSSQL, inserts into SQLite.
 
 **Task lifecycle:** `PENDING` (created) → `STARTED` (media fetched) → `FINISHED` (text submitted).
 
@@ -80,6 +81,7 @@ CREATE TABLE media (
     media_id            TEXT PRIMARY KEY,
     url                 TEXT NOT NULL,
     maggid_description  TEXT,
+    maggid_id           INTEGER,  -- FK → maggid_data.id
     massechet_id        TEXT,
     massechet_name      TEXT,
     daf_id              TEXT,
@@ -88,6 +90,13 @@ CREATE TABLE media (
     media_duration      INTEGER,
     file_type           TEXT
 );
+
+CREATE TABLE maggid_data (
+    id          INTEGER PRIMARY KEY,
+    description TEXT,
+    language    INTEGER,
+    accent      INTEGER
+);  -- seeded with maggid IDs and names
 
 CREATE TABLE tasks (
     task_id         TEXT PRIMARY KEY,
@@ -112,8 +121,9 @@ CREATE TABLE massechet (
 # AWS
 AWS_REGION=us-east-1
 AWS_PROFILE=portal
-S3_BUCKET=<bucket with original .vtt files>
-S3_FIXED_BUCKET=crowd-fixed-subtitles
+S3_BUCKET_VTT=<bucket with original .vtt files>
+S3_BUCKET_MP3=portal-daf-yomi-audio
+S3_FIXED_BUCKET=crowd-fixed-subtitles   # checked first when serving VTT; submitted fixes are written here
 
 # MSSQL
 DB_HOST=127.0.0.1
@@ -136,7 +146,6 @@ Secrets go in `.env.secret` (loaded after `.env`, takes precedence).
 ```bash
 uv sync                  # install dependencies
 uv run python main.py    # start the server
-uv run local_test        # run local Lambda test (once local_test.py exists)
 ```
 
 ---

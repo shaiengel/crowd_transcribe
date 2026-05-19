@@ -18,11 +18,22 @@ class MediaSyncService:
         init_db(config.sqlite_path)
 
     def _list_s3_ids(self) -> set[str]:
-        keys = self._file_manager.list_keys(self._config.s3_bucket, suffix=".vtt")
-        return {k.split("/")[-1][:-4] for k in keys}
+        vtt_keys = self._file_manager.list_keys(self._config.s3_bucket_vtt, suffix=".vtt")
+        vtt_ids = {k.split("/")[-1][:-4] for k in vtt_keys}
+        mp3_keys = self._file_manager.list_keys(self._config.s3_bucket_mp3, suffix=".mp3")
+        mp3_ids = {k.split("/")[-1][:-4] for k in mp3_keys}
+        matched = vtt_ids & mp3_ids
+        logger.info(
+            "media_sync: %d VTTs, %d MP3s, %d matched",
+            len(vtt_ids), len(mp3_ids), len(matched),
+        )
+        return matched
 
     def sync(self) -> None:
-        logger.info("media_sync: listing .vtt files from s3://%s", self._config.s3_bucket)
+        logger.info(
+            "media_sync: listing .vtt from s3://%s and .mp3 from s3://%s",
+            self._config.s3_bucket_vtt, self._config.s3_bucket_mp3,
+        )
         s3_ids = self._list_s3_ids()
         logger.info("media_sync: found %d files in S3", len(s3_ids))
 

@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class TasksService:
     def __init__(self, config: Config, s3_client: FileManager) -> None:
         self._db_path = config.sqlite_path
-        self._bucket = config.s3_bucket
+        self._bucket = config.s3_bucket_vtt
         self._fixed_bucket = config.s3_fixed_bucket
         self._s3 = s3_client
         self._sefaria = SefariaClient()
@@ -54,7 +54,13 @@ class TasksService:
             raise NotFoundError(f"task {task_id} not found")
         logger.info("get_task: task_id=%s media_id=%s — fetching url and VTT", task_id, media_id)
         url = get_media_url(self._db_path, media_id)
-        vtt = self._s3.get_content(self._bucket, f"{media_id}.vtt")
+        key = f"{media_id}.vtt"
+        try:
+            vtt = self._s3.get_content(self._fixed_bucket, key)
+            logger.info("get_task: task_id=%s — VTT served from fixed bucket", task_id)
+        except Exception:
+            logger.info("get_task: task_id=%s — VTT not in fixed bucket, fetching from source", task_id)
+            vtt = self._s3.get_content(self._bucket, key)
         update_task_status(self._db_path, task_id, TaskStatus.STARTED)
         logger.info("get_task: task_id=%s status -> %s", task_id, TaskStatus.STARTED)
         return TaskDetail(media_link=url, subtitles=vtt)

@@ -1,8 +1,10 @@
 import logging
+import random
 
 from crowd_transcribe.config import Config
-from crowd_transcribe.domain.schema import Audio, AudioList, AudioListItem
-from crowd_transcribe.infrastructure.sqlite_db import get_audio_row, list_audio_rows
+from crowd_transcribe.domain.exceptions import NotFoundError
+from crowd_transcribe.domain.schema import Audio, AudioList, AudioListItem, Language, MaggidAccent
+from crowd_transcribe.infrastructure.sqlite_db import get_audio_row, list_audio_rows, list_audio_rows_by_accent
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,18 @@ class AudioService:
             return None
         return Audio(id=row[0], url=row[1], maggid_description=row[2],
                      massechet_name=row[3], daf_name=row[4], duration=row[5])
+
+    def get_random_audio(self, accent: MaggidAccent | None = None, language: Language = Language.HEBREW) -> Audio:
+        logger.info("get_random_audio: accent=%s language=%s", accent, language)
+        if accent is not None:
+            _, rows = list_audio_rows_by_accent(self._db_path, int(accent), int(language))
+        else:
+            _, rows = list_audio_rows(self._db_path)
+        if not rows:
+            raise NotFoundError("No available audio")
+        r = random.choice(rows)
+        return Audio(id=r[0], url=r[1], maggid_description=r[2],
+                     massechet_name=r[3], daf_name=r[4], duration=r[5])
 
     def list_audios(self) -> AudioList:
         logger.info("list_audios")

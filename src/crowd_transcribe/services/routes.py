@@ -1,10 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from crowd_transcribe.domain.exceptions import ConflictError, NotFoundError
 from crowd_transcribe.domain.schema import (
     Audio,
     AudioList,
     CreateTaskRequest,
+    Language,
+    MaggidAccent,
     TaskCreated,
     TaskDetail,
     TaskEnrichment,
@@ -24,11 +27,25 @@ def _audio_service(request: Request) -> AudioService:
     return request.app.state.container.audio_service()
 
 
-@router.get("/audios", response_model=AudioList)
+@router.get("/audios/list", response_model=AudioList)
 async def list_audios(
     svc: AudioService = Depends(_audio_service),
 ) -> AudioList:
     return svc.list_audios()
+
+
+@router.get("/audios", response_model=Audio)
+async def get_random_audio(
+    reading: MaggidAccent | None = None,
+    language: Language = Language.HEBREW,
+    svc: AudioService = Depends(_audio_service),
+) -> Audio:
+    try:
+        return svc.get_random_audio(accent=reading, language=language)
+    except NotFoundError:
+        return JSONResponse(status_code=200, content={"detail": "Audio not found"})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/audios/{id}", response_model=Audio)
