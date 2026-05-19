@@ -95,5 +95,5 @@ class TasksService:
             raise NotFoundError(f"task {task_id} not found")
         key = f"{media_id}.vtt"
         self._s3.put_content(self._fixed_bucket, key, text)
-        finish_task(self._db_path, task_id, text)
+        finish_task(self._db_path, task_id)
         logger.info("submit_task: task_id=%s saved s3://%s/%s status -> %s", task_id, self._fixed_bucket, key, TaskStatus.FINISHED)

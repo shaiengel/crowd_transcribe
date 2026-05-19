@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
-from crowd_transcribe.domain.exceptions import ConflictError, NotFoundError
+from crowd_transcribe.domain.exceptions import NotFoundError
 from crowd_transcribe.domain.schema import (
     Audio,
     AudioList,
-    CreateTaskRequest,
+    AudioReservation,
     Language,
     MaggidAccent,
-    TaskCreated,
+    ReserveAudioRequest,
     TaskDetail,
     TaskEnrichment,
     SubmitTaskRequest,
@@ -48,6 +48,19 @@ async def get_random_audio(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/audios/reserve", response_model=AudioReservation, status_code=status.HTTP_201_CREATED)
+async def reserve_audio(
+    body: ReserveAudioRequest,
+    svc: AudioService = Depends(_audio_service),
+) -> AudioReservation:
+    try:
+        return svc.reserve_random_audio(accent=body.reading, language=body.language)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="No available audio")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/audios/{id}", response_model=Audio)
 async def get_audio(id: str, svc: AudioService = Depends(_audio_service)) -> Audio:
     audio = svc.get_audio(id)
@@ -63,19 +76,6 @@ async def get_audio(id: str, svc: AudioService = Depends(_audio_service)) -> Aud
 def _tasks_service(request: Request) -> TasksService:
     return request.app.state.container.tasks_service()
 
-
-@router.post("/tasks", response_model=TaskCreated, status_code=status.HTTP_201_CREATED)
-async def create_task(
-    body: CreateTaskRequest,
-    svc: TasksService = Depends(_tasks_service),
-) -> TaskCreated:
-    try:
-        task_id = svc.create_task(media_id=body.media_id)
-    except NotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ConflictError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    return TaskCreated(task_id=task_id)
 
 
 @router.get("/tasks/{id}", response_model=TaskDetail)
@@ -111,7 +111,7 @@ async def delete_task(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/tasks/{id}/submit", status_code=status.HTTP_204_NO_CONTENT)
+@router.put("/tasks/{id}/submission", status_code=status.HTTP_204_NO_CONTENT)
 async def submit_task(
     id: str,
     body: SubmitTaskRequest,

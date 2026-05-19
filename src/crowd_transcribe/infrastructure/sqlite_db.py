@@ -166,10 +166,10 @@ def init_db(db_path: str) -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
-                task_id         TEXT PRIMARY KEY,
-                media_id        TEXT NOT NULL,
-                status          TEXT NOT NULL DEFAULT 'PENDING',
-                submitted_text  TEXT
+                task_id      TEXT PRIMARY KEY,
+                media_id     TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'PENDING',
+                locked_until TEXT
             )
         """)
         conn.execute("""
@@ -204,6 +204,72 @@ def insert_task(db_path: str, task_id: str, media_id: str, status: str) -> None:
         )
 
 
+def pick_and_reserve_audio(
+    db_path: str,
+    task_id: str,
+    accent: int | None = None,
+    language: int = 1,
+) -> tuple | None:
+    import random
+    conn = sqlite3.connect(db_path, timeout=10)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if accent is not None:
+            where = (
+                "media.maggid_id = maggid_data.id "
+                "AND maggid_data.accent = ? "
+                "AND maggid_data.language = ? "
+                f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+            )
+            rows = conn.execute(
+                f"""SELECT media.media_id, media.url, media.maggid_description,
+                           media.massechet_name, media.daf_name, media.media_duration
+                    FROM media JOIN maggid_data ON {where}""",
+                (accent, language),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""SELECT media_id, url, maggid_description, massechet_name,
+                          daf_name, media_duration
+                   FROM media
+                   WHERE media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"""
+            ).fetchall()
+
+        if not rows:
+            conn.execute("ROLLBACK")
+            return None
+
+        row = random.choice(rows)
+        media_id = row[0]
+
+        updated = conn.execute(
+            "UPDATE tasks SET task_id = ?, locked_until = datetime('now', '+5 minutes'), status = 'PENDING' "
+            "WHERE media_id = ? AND locked_until IS NOT NULL AND locked_until <= datetime('now')",
+            (task_id, media_id),
+        ).rowcount
+        if not updated:
+            conn.execute(
+                "INSERT INTO tasks (task_id, media_id, status, locked_until) "
+                "VALUES (?, ?, 'PENDING', datetime('now', '+5 minutes'))",
+                (task_id, media_id),
+            )
+
+        conn.execute("COMMIT")
+        return row
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
+def delete_expired_reservations(db_path: str) -> None:
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "DELETE FROM tasks WHERE locked_until IS NOT NULL AND locked_until <= datetime('now')"
+        )
+
+
 def task_exists(db_path: str, task_id: str) -> bool:
     with sqlite3.connect(db_path) as conn:
         return conn.execute(
@@ -222,7 +288,8 @@ def get_task_media_id(db_path: str, task_id: str) -> str | None:
 def update_task_status(db_path: str, task_id: str, status: str) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "UPDATE tasks SET status = ? WHERE task_id = ?", (status, task_id)
+            "UPDATE tasks SET status = ?, locked_until = NULL WHERE task_id = ?",
+            (status, task_id),
         )
 
 
@@ -237,7 +304,10 @@ def get_media_url(db_path: str, media_id: str) -> str | None:
 def get_active_task_for_media(db_path: str, media_id: str) -> str | None:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            "SELECT task_id FROM tasks WHERE media_id = ? AND status IN ('PENDING', 'STARTED')",
+            """SELECT task_id FROM tasks
+               WHERE media_id = ?
+                 AND status IN ('PENDING', 'STARTED')
+                 AND (locked_until IS NULL OR locked_until > datetime('now'))""",
             (media_id,),
         ).fetchone()
     return row[0] if row else None
@@ -251,11 +321,11 @@ def delete_task(db_path: str, task_id: str) -> bool:
     return rowcount > 0
 
 
-def finish_task(db_path: str, task_id: str, text: str) -> bool:
+def finish_task(db_path: str, task_id: str) -> bool:
     with sqlite3.connect(db_path) as conn:
         rowcount = conn.execute(
-            "UPDATE tasks SET status = 'FINISHED', submitted_text = ? WHERE task_id = ?",
-            (text, task_id),
+            "UPDATE tasks SET status = 'FINISHED', locked_until = NULL WHERE task_id = ?",
+            (task_id,),
         ).rowcount
     return rowcount > 0
 
@@ -276,12 +346,18 @@ def get_audio_row(db_path: str, media_id: str) -> tuple | None:
         ).fetchone()
 
 
+_ACTIVE_TASK_SUBQUERY = (
+    "SELECT media_id FROM tasks "
+    "WHERE locked_until IS NULL OR locked_until > datetime('now')"
+)
+
+
 def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) -> tuple[int, list[tuple]]:
     where = (
         "media.maggid_id = maggid_data.id "
         "AND maggid_data.accent = ? "
         "AND maggid_data.language = ? "
-        "AND media.media_id NOT IN (SELECT media_id FROM tasks)"
+        f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
     )
     params = (accent, language)
     with sqlite3.connect(db_path) as conn:
@@ -301,13 +377,13 @@ def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) 
 def list_audio_rows(db_path: str) -> tuple[int, list[tuple]]:
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(
-            "SELECT COUNT(*) FROM media WHERE media_id NOT IN (SELECT media_id FROM tasks)"
+            f"SELECT COUNT(*) FROM media WHERE media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
         ).fetchone()[0]
         rows = conn.execute(
-            """SELECT media_id, url, maggid_description, massechet_name,
+            f"""SELECT media_id, url, maggid_description, massechet_name,
                       daf_name, media_duration
                FROM media
-               WHERE media_id NOT IN (SELECT media_id FROM tasks)"""
+               WHERE media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"""
         ).fetchall()
     return total, rows
 

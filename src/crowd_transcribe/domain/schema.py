@@ -39,6 +39,10 @@ class Audio(BaseModel):
     duration: Optional[int] = None
 
 
+class AudioReservation(Audio):
+    task_id: str
+
+
 class AudioListItem(BaseModel):
     id: str
     maggid_description: Optional[str] = None
@@ -76,8 +80,9 @@ class Submission(BaseModel):
     byte_size: Optional[int] = None
 
 
-class CreateTaskRequest(BaseModel):
-    media_id: str
+class ReserveAudioRequest(BaseModel):
+    reading: Optional[MaggidAccent] = None
+    language: Language = Language.HEBREW
 
 
 class SubmitTaskRequest(BaseModel):
