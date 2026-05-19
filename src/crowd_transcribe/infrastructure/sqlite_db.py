@@ -154,6 +154,7 @@ def init_db(db_path: str) -> None:
                 media_id            TEXT PRIMARY KEY,
                 url                 TEXT NOT NULL,
                 maggid_description  TEXT,
+                maggid_id           INTEGER,
                 massechet_id        TEXT,
                 massechet_name      TEXT,
                 daf_id              TEXT,
@@ -305,6 +306,7 @@ def get_task_enrichment(db_path: str, task_id: str) -> tuple | None:
 
 def insert_media(db_path: str, media_id: str, url: str,
                  maggid_description: str | None = None,
+                 maggid_id: int | None = None,
                  massechet_id: str | None = None,
                  massechet_name: str | None = None,
                  daf_id: str | None = None,
@@ -313,13 +315,20 @@ def insert_media(db_path: str, media_id: str, url: str,
                  media_duration: int | None = None,
                  file_type: str | None = None) -> None:
     with sqlite3.connect(db_path) as conn:
+        if maggid_id is None and maggid_description:
+            row = conn.execute(
+                "SELECT id FROM maggid_data WHERE LOWER(TRIM(description)) = LOWER(TRIM(?))",
+                (maggid_description,),
+            ).fetchone()
+            if row:
+                maggid_id = row[0]
         conn.execute(
             """
             INSERT OR IGNORE INTO media
-                (media_id, url, maggid_description, massechet_id, massechet_name,
+                (media_id, url, maggid_description, maggid_id, massechet_id, massechet_name,
                  daf_id, daf_name, language, media_duration, file_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (media_id, url, maggid_description, massechet_id, massechet_name,
+            (media_id, url, maggid_description, maggid_id, massechet_id, massechet_name,
              daf_id, daf_name, language, media_duration, file_type),
         )
