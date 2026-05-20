@@ -13,9 +13,9 @@ from crowd_transcribe.infrastructure.sqlite_db import (
     get_media_url,
     get_task_enrichment,
     get_task_media_id,
+    get_task_status,
     insert_task,
     task_exists,
-    update_task_status,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,8 +42,8 @@ class TasksService:
             task_id = str(uuid.uuid4())
             if not task_exists(self._db_path, task_id):
                 break
-        insert_task(self._db_path, task_id, media_id, TaskStatus.PENDING)
-        logger.info("create_task: created task_id=%s status=%s", task_id, TaskStatus.PENDING)
+        insert_task(self._db_path, task_id, media_id, TaskStatus.STARTED)
+        logger.info("create_task: created task_id=%s status=%s", task_id, TaskStatus.STARTED)
         return task_id
 
     def get_task(self, task_id: str) -> TaskDetail:
@@ -52,7 +52,6 @@ class TasksService:
         if media_id is None:
             logger.warning("get_task: task_id=%s not found", task_id)
             raise NotFoundError(f"task {task_id} not found")
-        logger.info("get_task: task_id=%s media_id=%s — fetching url and VTT", task_id, media_id)
         url = get_media_url(self._db_path, media_id)
         key = f"{media_id}.vtt"
         try:
@@ -61,8 +60,6 @@ class TasksService:
         except Exception:
             logger.info("get_task: task_id=%s — VTT not in fixed bucket, fetching from source", task_id)
             vtt = self._s3.get_content(self._bucket, key)
-        update_task_status(self._db_path, task_id, TaskStatus.STARTED)
-        logger.info("get_task: task_id=%s status -> %s", task_id, TaskStatus.STARTED)
         return TaskDetail(media_link=url, subtitles=vtt)
 
     def enrich_task(self, task_id: str) -> TaskEnrichment:
@@ -82,9 +79,14 @@ class TasksService:
 
     def delete_task(self, task_id: str) -> None:
         logger.info("delete_task: task_id=%s", task_id)
-        if not delete_task(self._db_path, task_id):
+        task_status = get_task_status(self._db_path, task_id)
+        if task_status is None:
             logger.warning("delete_task: task_id=%s not found", task_id)
             raise NotFoundError(f"task {task_id} not found")
+        if task_status == TaskStatus.FINISHED:
+            logger.info("delete_task: task_id=%s is FINISHED, skipping", task_id)
+            return
+        delete_task(self._db_path, task_id)
         logger.info("delete_task: task_id=%s deleted", task_id)
 
     def submit_task(self, task_id: str, text: str) -> None:

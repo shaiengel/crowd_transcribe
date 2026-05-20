@@ -25,7 +25,6 @@ class Language(int, Enum):
 
 
 class TaskStatus(str, Enum):
-    PENDING = "PENDING"
     STARTED = "STARTED"
     FINISHED = "FINISHED"
 
@@ -60,6 +59,8 @@ class Task(BaseModel):
     task_id: str
     media_id: str
     status: TaskStatus
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
 
 
 class TaskCreated(BaseModel):

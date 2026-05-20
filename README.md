@@ -17,19 +17,19 @@ SQLite  (media, tasks, massechet tables)
   │
   ▼
 FastAPI  /api/v1/crowd
-  ├── GET  /audios              → random unclaimed audio (optional: ?reading=&language=)
-  ├── GET  /audios/list         → list unclaimed audios
-  ├── GET  /audios/{id}         → audio details
-  ├── POST /audios/reserve      → pick and reserve a random audio for 5 min → returns audio + task_id
-  ├── GET  /tasks/{id}          → fetch media URL + VTT (fixed bucket first, fallback to source) → status → STARTED
-  ├── GET  /tasks/{id}/enrich   → fetch Sefaria Gemara text for the daf
-  ├── POST /tasks/{id}/submit   → submit corrected text → writes to S3 → FINISHED
-  └── DELETE /tasks/{id}        → remove task
+  ├── GET  /audios                  → random unclaimed audio (optional: ?reading=&language=)
+  ├── GET  /audios/list             → list unclaimed audios
+  ├── GET  /audios/{id}             → audio details by media_id
+  ├── POST /tasks/start             → pick a random available audio, create STARTED task → returns audio + task_id
+  ├── GET  /tasks/{id}              → fetch media URL + VTT (fixed bucket first, fallback to source)
+  ├── GET  /tasks/{id}/enrich       → fetch Sefaria Gemara text for the daf
+  ├── PUT  /tasks/{id}/submission   → submit corrected text → writes to S3 → FINISHED
+  └── DELETE /tasks/{id}            → delete task (no-op if FINISHED)
 ```
 
 **Media sync** runs daily and on startup: lists `.vtt` keys in `S3_BUCKET_VTT` and `.mp3` keys in `S3_BUCKET_MP3`, keeps only IDs that have both, fetches metadata for new IDs from MSSQL, inserts into SQLite.
 
-**Task lifecycle:** `PENDING` (reserved via `POST /audios/reserve`, expires after 5 min if not acted on) → `STARTED` (media fetched via `GET /tasks/{id}`, lock cleared — task is now permanent) → `FINISHED` (text submitted).
+**Task lifecycle:** `STARTED` (created via `POST /tasks/start` — audio locked immediately) → `FINISHED` (text submitted via `PUT /tasks/{id}/submission`). Deleting a STARTED task releases the audio back into the pool; deleting a FINISHED task is a no-op.
 
 **Enrichment:** `GET /tasks/{id}/enrich` calls the [Sefaria API](https://www.sefaria.org.il) to return the corresponding Gemara text for the daf, which volunteers can use as a reference while correcting.
 
@@ -99,10 +99,11 @@ CREATE TABLE maggid_data (
 );  -- seeded with maggid IDs and names
 
 CREATE TABLE tasks (
-    task_id      TEXT PRIMARY KEY,
-    media_id     TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'PENDING',  -- PENDING | STARTED | FINISHED
-    locked_until TEXT  -- set on reservation; cleared on STARTED; NULL = permanent
+    task_id     TEXT PRIMARY KEY,
+    media_id    TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'STARTED',  -- STARTED | FINISHED
+    started_at  TEXT,   -- ISO datetime when POST /tasks/start was called
+    finished_at TEXT    -- ISO datetime when PUT /tasks/{id}/submission was called
 );
 
 CREATE TABLE massechet (
@@ -111,7 +112,7 @@ CREATE TABLE massechet (
 );  -- seeded with tractate name → Sefaria name mapping
 ```
 
-`list_audios` and `POST /audios/reserve` exclude media whose task has `locked_until IS NULL` (permanent) or `locked_until > now` (active reservation). Expired reservations fall back into the pool automatically.
+`list_audios` and `POST /tasks/start` exclude media that has a task with `status = 'STARTED'`. `FINISHED` tasks free the audio back into the pool.
 
 ---
 

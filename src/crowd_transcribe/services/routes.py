@@ -48,21 +48,6 @@ async def get_random_audio(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/audios/reserve", response_model=AudioReservation, status_code=status.HTTP_201_CREATED)
-async def reserve_audio(
-    body: ReserveAudioRequest | None = None,
-    svc: AudioService = Depends(_audio_service),
-) -> AudioReservation:
-    if body is None:
-        body = ReserveAudioRequest()
-    try:
-        return svc.reserve_random_audio(accent=body.reading, language=body.language)
-    except NotFoundError:
-        raise HTTPException(status_code=404, detail="No available audio")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/audios/{id}", response_model=Audio)
 async def get_audio(id: str, svc: AudioService = Depends(_audio_service)) -> Audio:
     audio = svc.get_audio(id)
@@ -78,6 +63,20 @@ async def get_audio(id: str, svc: AudioService = Depends(_audio_service)) -> Aud
 def _tasks_service(request: Request) -> TasksService:
     return request.app.state.container.tasks_service()
 
+
+@router.post("/tasks/start", response_model=AudioReservation, status_code=status.HTTP_201_CREATED)
+async def start_task(
+    body: ReserveAudioRequest | None = None,
+    svc: AudioService = Depends(_audio_service),
+) -> AudioReservation:
+    if body is None:
+        body = ReserveAudioRequest()
+    try:
+        return svc.start_random_audio(accent=body.reading, language=body.language)
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="No available audio")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/tasks/{id}", response_model=TaskDetail)

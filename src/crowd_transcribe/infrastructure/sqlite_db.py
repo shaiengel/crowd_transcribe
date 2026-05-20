@@ -166,10 +166,11 @@ def init_db(db_path: str) -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS tasks (
-                task_id      TEXT PRIMARY KEY,
-                media_id     TEXT NOT NULL,
-                status       TEXT NOT NULL DEFAULT 'PENDING',
-                locked_until TEXT
+                task_id     TEXT PRIMARY KEY,
+                media_id    TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'STARTED',
+                started_at  TEXT,
+                finished_at TEXT
             )
         """)
         conn.execute("""
@@ -199,12 +200,12 @@ def init_db(db_path: str) -> None:
 def insert_task(db_path: str, task_id: str, media_id: str, status: str) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO tasks (task_id, media_id, status) VALUES (?, ?, ?)",
+            "INSERT INTO tasks (task_id, media_id, status, started_at) VALUES (?, ?, ?, datetime('now'))",
             (task_id, media_id, status),
         )
 
 
-def pick_and_reserve_audio(
+def pick_and_start_audio(
     db_path: str,
     task_id: str,
     accent: int | None = None,
@@ -242,17 +243,11 @@ def pick_and_reserve_audio(
         row = random.choice(rows)
         media_id = row[0]
 
-        updated = conn.execute(
-            "UPDATE tasks SET task_id = ?, locked_until = datetime('now', '+5 minutes'), status = 'PENDING' "
-            "WHERE media_id = ? AND locked_until IS NOT NULL AND locked_until <= datetime('now')",
+        conn.execute(
+            "INSERT INTO tasks (task_id, media_id, status, started_at) "
+            "VALUES (?, ?, 'STARTED', datetime('now'))",
             (task_id, media_id),
-        ).rowcount
-        if not updated:
-            conn.execute(
-                "INSERT INTO tasks (task_id, media_id, status, locked_until) "
-                "VALUES (?, ?, 'PENDING', datetime('now', '+5 minutes'))",
-                (task_id, media_id),
-            )
+        )
 
         conn.execute("COMMIT")
         return row
@@ -261,13 +256,6 @@ def pick_and_reserve_audio(
         raise
     finally:
         conn.close()
-
-
-def delete_expired_reservations(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM tasks WHERE locked_until IS NOT NULL AND locked_until <= datetime('now')"
-        )
 
 
 def task_exists(db_path: str, task_id: str) -> bool:
@@ -288,7 +276,7 @@ def get_task_media_id(db_path: str, task_id: str) -> str | None:
 def update_task_status(db_path: str, task_id: str, status: str) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "UPDATE tasks SET status = ?, locked_until = NULL WHERE task_id = ?",
+            "UPDATE tasks SET status = ? WHERE task_id = ?",
             (status, task_id),
         )
 
@@ -304,11 +292,16 @@ def get_media_url(db_path: str, media_id: str) -> str | None:
 def get_active_task_for_media(db_path: str, media_id: str) -> str | None:
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(
-            """SELECT task_id FROM tasks
-               WHERE media_id = ?
-                 AND status IN ('PENDING', 'STARTED')
-                 AND (locked_until IS NULL OR locked_until > datetime('now'))""",
+            "SELECT task_id FROM tasks WHERE media_id = ? AND status IN ('STARTED', 'FINISHED')",
             (media_id,),
+        ).fetchone()
+    return row[0] if row else None
+
+
+def get_task_status(db_path: str, task_id: str) -> str | None:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT status FROM tasks WHERE task_id = ?", (task_id,)
         ).fetchone()
     return row[0] if row else None
 
@@ -324,7 +317,7 @@ def delete_task(db_path: str, task_id: str) -> bool:
 def finish_task(db_path: str, task_id: str) -> bool:
     with sqlite3.connect(db_path) as conn:
         rowcount = conn.execute(
-            "UPDATE tasks SET status = 'FINISHED', locked_until = NULL WHERE task_id = ?",
+            "UPDATE tasks SET status = 'FINISHED', finished_at = datetime('now') WHERE task_id = ?",
             (task_id,),
         ).rowcount
     return rowcount > 0
@@ -346,10 +339,7 @@ def get_audio_row(db_path: str, media_id: str) -> tuple | None:
         ).fetchone()
 
 
-_ACTIVE_TASK_SUBQUERY = (
-    "SELECT media_id FROM tasks "
-    "WHERE locked_until IS NULL OR locked_until > datetime('now')"
-)
+_ACTIVE_TASK_SUBQUERY = "SELECT media_id FROM tasks WHERE status = 'STARTED'"
 
 
 def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) -> tuple[int, list[tuple]]:

@@ -8,10 +8,10 @@ info:
 
     **How it works**
     1. Clients browse available audios.
-    2. Clients reserve a random audio via `POST /audios/reserve`, receiving an audio + task_id.
-       The audio is locked for 5 minutes — no other client can reserve it during that window.
-    3. The client fetches task details (media link + subtitles) to start working; the lock becomes permanent.
-    4. The client submits the corrected text.
+    2. Clients start a task via `POST /tasks/start`, receiving an audio + task_id.
+       The audio is locked for as long as the task has status `STARTED`.
+    3. The client fetches task details via `GET /tasks/{id}` (read-only).
+    4. The client submits the corrected text, transitioning the task to `FINISHED`.
 
 servers:
   - url: /api/v1/crowd
@@ -69,22 +69,17 @@ components:
           type: string
           description: Audio asset ID.
         url:
-          type: string
+          type: ['string', 'null']
           format: uri
-          nullable: true
           description: Direct URL to the audio file.
         maggid_description:
-          type: string
-          nullable: true
+          type: ['string', 'null']
         massechet_name:
-          type: string
-          nullable: true
+          type: ['string', 'null']
         daf_name:
-          type: string
-          nullable: true
+          type: ['string', 'null']
         duration:
-          type: integer
-          nullable: true
+          type: ['integer', 'null']
           description: Duration in seconds.
 
     AudioReservation:
@@ -96,7 +91,7 @@ components:
             task_id:
               type: string
               description: |
-                ID of the PENDING task created for this reservation.
+                ID of the STARTED task created for this audio.
                 Use this to call GET /tasks/{id}, POST /tasks/{id}/submit, etc.
 
     AudioListItem:
@@ -106,17 +101,13 @@ components:
         id:
           type: string
         maggid_description:
-          type: string
-          nullable: true
+          type: ['string', 'null']
         massechet_name:
-          type: string
-          nullable: true
+          type: ['string', 'null']
         daf_name:
-          type: string
-          nullable: true
+          type: ['string', 'null']
         duration:
-          type: integer
-          nullable: true
+          type: ['integer', 'null']
 
     AudioList:
       type: object
@@ -132,7 +123,7 @@ components:
 
     TaskStatus:
       type: string
-      enum: [PENDING, STARTED, FINISHED]
+      enum: [STARTED, FINISHED]
 
     TaskDetail:
       type: object
@@ -155,8 +146,7 @@ components:
         media_id:
           type: string
         text:
-          type: string
-          nullable: true
+          type: ['string', 'null']
           description: Corresponding Gemara text from Sefaria, stripped of nikud and HTML.
 
     Error:
@@ -202,7 +192,7 @@ paths:
             $ref: '#/components/schemas/Language'
       responses:
         '200':
-          description: A random audio, or `{"detail": "Audio not found"}` if none available.
+          description: 'A random audio, or `{"detail": "Audio not found"}` if none available.'
           content:
             application/json:
               schema:
@@ -239,18 +229,19 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /audios/reserve:
+  # ---- Tasks ---------------------------------------------------------------
+
+  /tasks/start:
     post:
-      operationId: reserveAudio
-      summary: Reserve a random audio
+      operationId: startTask
+      summary: Start a task for a random available audio
       description: |
-        Atomically picks a random unclaimed audio and creates a PENDING task for it.
-        The audio is locked for **5 minutes**. If the client does not call
-        `GET /tasks/{id}` within that window, the reservation expires and the
-        audio becomes available to other clients again.
+        Atomically picks a random available audio (no STARTED task) and creates
+        a STARTED task for it. The audio remains locked until the task is deleted
+        or submitted.
 
         Returns the audio details plus the `task_id` to use for subsequent calls.
-      tags: [audios]
+      tags: [tasks]
       requestBody:
         required: false
         content:
@@ -264,7 +255,7 @@ paths:
                   $ref: '#/components/schemas/Language'
       responses:
         '201':
-          description: Audio reserved successfully.
+          description: Task started successfully.
           content:
             application/json:
               schema:
@@ -273,22 +264,17 @@ paths:
           description: No available audio matching the filters.
           $ref: '#/components/responses/NotFound'
 
-  # ---- Tasks ---------------------------------------------------------------
-
   /tasks/{id}:
     get:
       operationId: getTask
-      summary: Start working on a task
-      description: |
-        Returns the media URL and subtitle text for the task.
-        Transitions status from `PENDING` → `STARTED` and clears the 5-minute
-        expiry lock, making the task permanent.
+      summary: Get task media and subtitles
+      description: Returns the media URL and VTT subtitle text for the task (read-only, no status changes).
       tags: [tasks]
       parameters:
         - $ref: '#/components/parameters/taskId'
       responses:
         '200':
-          description: Task details.
+          description: Task details (media link + subtitles).
           content:
             application/json:
               schema:
@@ -299,13 +285,15 @@ paths:
     delete:
       operationId: deleteTask
       summary: Delete a task
-      description: Removes the task and releases the audio back into the pool.
+      description: |
+        Deletes the task and releases the audio back into the pool.
+        If the task status is `FINISHED`, this is a no-op (returns 204 without deleting).
       tags: [tasks]
       parameters:
         - $ref: '#/components/parameters/taskId'
       responses:
         '204':
-          description: Task deleted.
+          description: Task deleted (or was already FINISHED — no-op).
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -330,12 +318,11 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /tasks/{id}/submit:
-    post:
+  /tasks/{id}/submission:
+    put:
       operationId: submitTask
       summary: Submit corrected subtitle text
-      description: |
-        Writes the corrected text to S3 and marks the task as `FINISHED`.
+      description: Writes the corrected text to S3 and marks the task as `FINISHED`.
       tags: [tasks]
       parameters:
         - $ref: '#/components/parameters/taskId'
