@@ -50,9 +50,11 @@ async def get_random_audio(
 
 @router.post("/audios/reserve", response_model=AudioReservation, status_code=status.HTTP_201_CREATED)
 async def reserve_audio(
-    body: ReserveAudioRequest,
+    body: ReserveAudioRequest | None = None,
     svc: AudioService = Depends(_audio_service),
 ) -> AudioReservation:
+    if body is None:
+        body = ReserveAudioRequest()
     try:
         return svc.reserve_random_audio(accent=body.reading, language=body.language)
     except NotFoundError:
