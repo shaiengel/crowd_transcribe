@@ -170,9 +170,14 @@ def init_db(db_path: str) -> None:
                 media_id    TEXT NOT NULL,
                 status      TEXT NOT NULL DEFAULT 'STARTED',
                 started_at  TEXT,
-                finished_at TEXT
+                finished_at TEXT,
+                quality     TEXT
             )
         """)
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN quality TEXT")
+        except Exception:
+            pass
         conn.execute("""
             CREATE TABLE IF NOT EXISTS massechet (
                 id   TEXT PRIMARY KEY,
@@ -273,6 +278,14 @@ def get_task_media_id(db_path: str, task_id: str) -> str | None:
     return row[0] if row else None
 
 
+def get_task_media_and_quality(db_path: str, task_id: str) -> tuple[str, str | None] | None:
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT media_id, quality FROM tasks WHERE task_id = ?", (task_id,)
+        ).fetchone()
+    return (row[0], row[1]) if row else None
+
+
 def update_task_status(db_path: str, task_id: str, status: str) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
@@ -314,11 +327,11 @@ def delete_task(db_path: str, task_id: str) -> bool:
     return rowcount > 0
 
 
-def finish_task(db_path: str, task_id: str) -> bool:
+def finish_task(db_path: str, task_id: str, quality: str) -> bool:
     with sqlite3.connect(db_path) as conn:
         rowcount = conn.execute(
-            "UPDATE tasks SET status = 'FINISHED', finished_at = datetime('now') WHERE task_id = ?",
-            (task_id,),
+            "UPDATE tasks SET status = 'FINISHED', finished_at = datetime('now'), quality = ? WHERE task_id = ?",
+            (quality, task_id),
         ).rowcount
     return rowcount > 0
 
@@ -339,7 +352,10 @@ def get_audio_row(db_path: str, media_id: str) -> tuple | None:
         ).fetchone()
 
 
-_ACTIVE_TASK_SUBQUERY = "SELECT media_id FROM tasks WHERE status = 'STARTED'"
+_ACTIVE_TASK_SUBQUERY = (
+    "SELECT media_id FROM tasks WHERE status = 'STARTED' "
+    "OR (status = 'FINISHED' AND quality IS NOT 'BAD')"
+)
 
 
 def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) -> tuple[int, list[tuple]]:

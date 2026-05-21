@@ -23,13 +23,15 @@ FastAPI  /api/v1/crowd
   ├── POST /tasks/start             → pick a random available audio, create STARTED task → returns audio + task_id
   ├── GET  /tasks/{id}              → fetch media URL + VTT (fixed bucket first, fallback to source)
   ├── GET  /tasks/{id}/enrich       → fetch Sefaria Gemara text for the daf
-  ├── PUT  /tasks/{id}/submission   → submit corrected text → writes to S3 → FINISHED
+  ├── PUT  /tasks/{id}/submission   → submit corrected text → quality check (WER) → writes to S3 → FINISHED; returns quality, wer, wil
   └── DELETE /tasks/{id}            → delete task (no-op if FINISHED)
 ```
 
 **Media sync** runs daily and on startup: lists `.vtt` keys in `S3_BUCKET_VTT` and `.mp3` keys in `S3_BUCKET_MP3`, keeps only IDs that have both, fetches metadata for new IDs from MSSQL, inserts into SQLite.
 
 **Task lifecycle:** `STARTED` (created via `POST /tasks/start` — audio locked immediately) → `FINISHED` (text submitted via `PUT /tasks/{id}/submission`). Deleting a STARTED task releases the audio back into the pool; deleting a FINISHED task is a no-op.
+
+**Quality check:** on submission, the corrected VTT is compared against the original using Word Error Rate (WER). If WER > `WER_THRESHOLD` the task is marked `GOOD`; otherwise `BAD`. The response returns `quality`, `wer`, and `wil`. Media finished with `BAD` quality re-enters the available pool so another volunteer can retry it. `GET /tasks/{id}` serves VTT from the fixed S3 bucket for `GOOD` tasks and from the source bucket for `BAD` or unsubmitted tasks.
 
 **Enrichment:** `GET /tasks/{id}/enrich` calls the [Sefaria API](https://www.sefaria.org.il) to return the corresponding Gemara text for the daf, which volunteers can use as a reference while correcting.
 
@@ -43,18 +45,21 @@ src/crowd_transcribe/
 ├── domain/
 │   ├── exceptions.py            — ConflictError, NotFoundError
 │   ├── file_manager.py          — FileManager protocol (S3 abstraction)
-│   └── schema.py                — Pydantic models
+│   └── schema.py                — Pydantic models + QualityResult dataclass
 ├── infrastructure/
 │   ├── database.py              — MSSQL connection via SQLAlchemy + pyodbc
 │   ├── dependency_injection.py  — dependency-injector DI container
 │   ├── s3_client.py             — boto3 S3 wrapper
 │   ├── sefaria_client.py        — Sefaria REST API client
 │   └── sqlite_db.py             — SQLite helpers + schema init
-└── services/
-    ├── audio_service.py         — browse audios from SQLite
-    ├── media_sync.py            — S3 → MSSQL → SQLite sync loop
-    ├── routes.py                — FastAPI router
-    └── tasks_service.py         — task lifecycle and submit logic
+├── services/
+│   ├── audio_service.py         — browse audios from SQLite
+│   ├── media_sync.py            — S3 → MSSQL → SQLite sync loop
+│   ├── routes.py                — FastAPI router
+│   └── tasks_service.py         — task lifecycle and submit logic
+└── utils/
+    ├── text_quality.py          — WER-based quality check (jiwer)
+    └── vtt_utils.py             — VTT → plain text parser (webvtt-py)
 openapi.yaml                     — API contract
 ```
 
@@ -69,6 +74,8 @@ openapi.yaml                     — API contract
 | MSSQL | SQLAlchemy + `pyodbc` |
 | AWS S3 | `boto3` |
 | Sefaria text | `httpx` |
+| WER quality check | `jiwer` |
+| VTT parsing | `webvtt-py` |
 | DI | `dependency-injector` |
 | Package manager | `uv` |
 
@@ -103,7 +110,8 @@ CREATE TABLE tasks (
     media_id    TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'STARTED',  -- STARTED | FINISHED
     started_at  TEXT,   -- ISO datetime when POST /tasks/start was called
-    finished_at TEXT    -- ISO datetime when PUT /tasks/{id}/submission was called
+    finished_at TEXT,   -- ISO datetime when PUT /tasks/{id}/submission was called
+    quality     TEXT    -- GOOD | BAD; set on submission via WER check; NULL until submitted
 );
 
 CREATE TABLE massechet (
@@ -112,7 +120,7 @@ CREATE TABLE massechet (
 );  -- seeded with tractate name → Sefaria name mapping
 ```
 
-`list_audios` and `POST /tasks/start` exclude media that has a task with `status = 'STARTED'`. `FINISHED` tasks free the audio back into the pool.
+`list_audios` and `POST /tasks/start` exclude media that has a `STARTED` task or a `FINISHED` task with `quality` of `GOOD` or `NULL`. Media with a `FINISHED`+`BAD` task re-enters the pool for another volunteer to retry.
 
 ---
 
@@ -136,6 +144,9 @@ DB_DRIVER_WINDOWS=ODBC Driver 17 for SQL Server
 
 # SQLite
 SQLITE_PATH=media.db
+
+# Quality check
+WER_THRESHOLD=0.40   # WER above this → BAD; below → GOOD
 ```
 
 Secrets go in `.env.secret` (loaded after `.env`, takes precedence).

@@ -1,8 +1,16 @@
+from dataclasses import dataclass
 from uuid import UUID
 from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel
+
+
+@dataclass
+class QualityResult:
+    quality: str
+    wer: float
+    wil: float
 
 
 class MaggidAccent(int, Enum):
@@ -62,6 +70,7 @@ class Task(BaseModel):
     status: TaskStatus
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    quality: Optional[str] = None
 
 
 class TaskCreated(BaseModel):
@@ -89,6 +98,12 @@ class ReserveAudioRequest(BaseModel):
 
 class SubmitTaskRequest(BaseModel):
     text: str
+
+
+class SubmitTaskResponse(BaseModel):
+    quality: str
+    wer: Optional[float] = None
+    wil: Optional[float] = None
 
 
 class TaskEnrichment(BaseModel):
