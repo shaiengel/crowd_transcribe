@@ -40,6 +40,7 @@ class Audio(BaseModel):
 
 class AudioReservation(Audio):
     task_id: str
+    subtitles: Optional[str] = None
 
 
 class AudioListItem(BaseModel):

@@ -15,7 +15,6 @@ from crowd_transcribe.domain.schema import (
 )
 from crowd_transcribe.services.audio_service import AudioService
 from crowd_transcribe.services.tasks_service import TasksService
-
 router = APIRouter(prefix="/api/v1/crowd")
 
 
@@ -68,15 +67,22 @@ def _tasks_service(request: Request) -> TasksService:
 async def start_task(
     body: ReserveAudioRequest | None = None,
     svc: AudioService = Depends(_audio_service),
+    tasks_svc: TasksService = Depends(_tasks_service),
 ) -> AudioReservation:
     if body is None:
         body = ReserveAudioRequest()
     try:
-        return svc.start_random_audio(accent=body.reading, language=body.language)
+        reservation = svc.start_random_audio(accent=body.reading, language=body.language)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="No available audio")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    try:
+        task_detail = tasks_svc.get_task(task_id=reservation.task_id)
+        reservation.subtitles = task_detail.subtitles
+    except Exception:
+        pass
+    return reservation
 
 
 @router.get("/tasks/{id}", response_model=TaskDetail)
