@@ -297,28 +297,6 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /tasks/{id}/enrich:
-    get:
-      operationId: enrichTask
-      summary: Fetch Gemara reference text
-      description: |
-        Calls the Sefaria API to retrieve the Gemara text for the daf associated
-        with this task. Returns `text: null` if the lookup fails or no tractate
-        mapping exists.
-      tags: [tasks]
-      parameters:
-        - $ref: '#/components/parameters/taskId'
-      responses:
-        '200':
-          description: Enrichment data.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/TaskEnrichment'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /tasks/{id}/submission:
     put:
       operationId: submitTask
       summary: Submit corrected subtitle text
@@ -340,5 +318,26 @@ paths:
       responses:
         '204':
           description: Submission accepted.
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tasks/{id}/enrich:
+    get:
+      operationId: enrichTask
+      summary: Fetch Gemara reference text
+      description: |
+        Calls the Sefaria API to retrieve the Gemara text for the daf associated
+        with this task. Returns `text: null` if the lookup fails or no tractate
+        mapping exists.
+      tags: [tasks]
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Enrichment data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskEnrichment'
         '404':
           $ref: '#/components/responses/NotFound'

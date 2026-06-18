@@ -119,7 +119,7 @@ async def delete_task(
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.put("/tasks/{id}/submission", response_model=SubmitTaskResponse)
+@router.put("/tasks/{id}", response_model=SubmitTaskResponse)
 async def submit_task(
     id: str,
     body: SubmitTaskRequest,
