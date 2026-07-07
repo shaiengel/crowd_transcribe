@@ -121,6 +121,17 @@ components:
           type: integer
           description: Total available (unclaimed) audios.
 
+    RabbiListItem:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          description: Rabbi (maggid) ID.
+        name:
+          type: string
+          description: Rabbi description/name.
+
     TaskStatus:
       type: string
       enum: [STARTED, FINISHED]
@@ -212,6 +223,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/AudioList'
 
+  /audio/rabbi_list:
+    get:
+      operationId: listRabbis
+      summary: List available rabbis
+      description: Returns all rabbis (maggidim) with Hebrew language entries and non-empty descriptions.
+      tags: [audios]
+      responses:
+        '200':
+          description: List of rabbis.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RabbiListItem'
+
   /audios/{id}:
     get:
       operationId: getAudio
@@ -253,6 +280,9 @@ paths:
                   $ref: '#/components/schemas/MaggidAccent'
                 language:
                   $ref: '#/components/schemas/Language'
+                rabbi_id:
+                  type: integer
+                  description: Filter by specific rabbi (maggid) ID.
       responses:
         '201':
           description: Task started successfully.

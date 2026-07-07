@@ -8,6 +8,7 @@ from crowd_transcribe.domain.schema import (
     AudioReservation,
     Language,
     MaggidAccent,
+    RabbiListItem,
     ReserveAudioRequest,
     TaskDetail,
     TaskEnrichment,
@@ -48,6 +49,13 @@ async def get_random_audio(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/audio/rabbi_list", response_model=list[RabbiListItem])
+async def list_rabbis(
+    svc: AudioService = Depends(_audio_service),
+) -> list[RabbiListItem]:
+    return svc.list_rabbis()
+
+
 @router.get("/audios/{id}", response_model=Audio)
 async def get_audio(id: str, svc: AudioService = Depends(_audio_service)) -> Audio:
     audio = svc.get_audio(id)
@@ -73,7 +81,7 @@ async def start_task(
     if body is None:
         body = ReserveAudioRequest()
     try:
-        reservation = svc.start_random_audio(accent=body.reading, language=body.language)
+        reservation = svc.start_random_audio(accent=body.reading, language=body.language, rabbi_id=body.rabbi_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="No available audio")
     except Exception as e:

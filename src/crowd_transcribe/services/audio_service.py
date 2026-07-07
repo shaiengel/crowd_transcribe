@@ -4,9 +4,10 @@ import uuid
 
 from crowd_transcribe.config import Config
 from crowd_transcribe.domain.exceptions import NotFoundError
-from crowd_transcribe.domain.schema import Audio, AudioList, AudioListItem, AudioReservation, Language, MaggidAccent
+from crowd_transcribe.domain.schema import Audio, AudioList, AudioListItem, AudioReservation, Language, MaggidAccent, RabbiListItem
 from crowd_transcribe.infrastructure.sqlite_db import (
     get_audio_row,
+    get_rabbi_list,
     list_audio_rows,
     list_audio_rows_by_accent,
     pick_and_start_audio,
@@ -40,13 +41,14 @@ class AudioService:
         return Audio(id=r[0], url=r[1], maggid_description=r[2],
                      massechet_name=r[3], daf_name=r[4], duration=r[5])
 
-    def start_random_audio(self, accent: MaggidAccent | None = None, language: Language = Language.HEBREW) -> AudioReservation:
-        logger.info("start_random_audio: accent=%s language=%s", accent, language)
+    def start_random_audio(self, accent: MaggidAccent | None = None, language: Language = Language.HEBREW, rabbi_id: int | None = None) -> AudioReservation:
+        logger.info("start_random_audio: accent=%s language=%s rabbi_id=%s", accent, language, rabbi_id)
         task_id = str(uuid.uuid4())
         row = pick_and_start_audio(
             self._db_path, task_id,
             accent=int(accent) if accent is not None else None,
             language=int(language),
+            rabbi_id=rabbi_id,
         )
         if row is None:
             raise NotFoundError("No available audio")
@@ -56,6 +58,10 @@ class AudioService:
             massechet_name=row[3], daf_name=row[4], duration=row[5],
             task_id=task_id,
         )
+
+    def list_rabbis(self) -> list[RabbiListItem]:
+        rows = get_rabbi_list(self._db_path)
+        return [RabbiListItem(id=r[0], name=r[1]) for r in rows]
 
     def list_audios(self) -> AudioList:
         logger.info("list_audios")

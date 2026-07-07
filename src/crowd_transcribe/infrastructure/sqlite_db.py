@@ -215,6 +215,7 @@ def pick_and_start_audio(
     task_id: str,
     accent: int | None = None,
     language: int = 1,
+    rabbi_id: int | None = None,
 ) -> tuple | None:
     import random
     conn = sqlite3.connect(db_path, timeout=10)
@@ -227,18 +228,28 @@ def pick_and_start_audio(
                 "AND maggid_data.language = ? "
                 f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
             )
+            params: list = [accent, language]
+            if rabbi_id is not None:
+                where += " AND media.maggid_id = ?"
+                params.append(rabbi_id)
             rows = conn.execute(
                 f"""SELECT media.media_id, media.url, media.maggid_description,
                            media.massechet_name, media.daf_name, media.media_duration
                     FROM media JOIN maggid_data ON {where}""",
-                (accent, language),
+                params,
             ).fetchall()
         else:
+            where_clause = f"media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+            params_no_accent: list = []
+            if rabbi_id is not None:
+                where_clause += " AND maggid_id = ?"
+                params_no_accent.append(rabbi_id)
             rows = conn.execute(
                 f"""SELECT media_id, url, maggid_description, massechet_name,
                           daf_name, media_duration
                    FROM media
-                   WHERE media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"""
+                   WHERE {where_clause}""",
+                params_no_accent,
             ).fetchall()
 
         if not rows:
@@ -292,6 +303,14 @@ def update_task_status(db_path: str, task_id: str, status: str) -> None:
             "UPDATE tasks SET status = ? WHERE task_id = ?",
             (status, task_id),
         )
+
+
+def get_rabbi_list(db_path: str) -> list[tuple]:
+    with sqlite3.connect(db_path) as conn:
+        return conn.execute(
+            "SELECT id, description FROM maggid_data "
+            "WHERE language = 1 AND description IS NOT NULL AND TRIM(description) != ''"
+        ).fetchall()
 
 
 def get_media_url(db_path: str, media_id: str) -> str | None:

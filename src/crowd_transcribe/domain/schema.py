@@ -94,6 +94,12 @@ class Submission(BaseModel):
 class ReserveAudioRequest(BaseModel):
     reading: Optional[MaggidAccent] = None
     language: Language = Language.HEBREW
+    rabbi_id: Optional[int] = None
+
+
+class RabbiListItem(BaseModel):
+    id: int
+    name: str
 
 
 class SubmitTaskRequest(BaseModel):
