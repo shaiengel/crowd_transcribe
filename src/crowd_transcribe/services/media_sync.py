@@ -39,6 +39,10 @@ class MediaSyncService:
 
         existing_ids = get_existing_ids(self._config.sqlite_path)
         new_ids = s3_ids - existing_ids
+        non_numeric = {mid for mid in new_ids if not mid.isdigit()}
+        if non_numeric:
+            logger.info("media_sync: skipping %d non-numeric IDs", len(non_numeric))
+            new_ids -= non_numeric
         logger.info("media_sync: %d new IDs to resolve from MSSQL", len(new_ids))
 
         if not new_ids:

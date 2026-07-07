@@ -109,7 +109,8 @@ class TasksService:
         except Exception as e:
             logger.warning("submit_task: task_id=%s could not fetch reference VTT for quality check: %s", task_id, e)
             quality = "BAD"
-        self._s3.put_content(self._fixed_bucket, key, text)
+        save_key = f"{media_id}_{uuid.uuid4()}.vtt" if quality == "BAD" else key
+        self._s3.put_content(self._fixed_bucket, save_key, text)
         finish_task(self._db_path, task_id, quality)
-        logger.info("submit_task: task_id=%s saved s3://%s/%s quality=%s status -> %s", task_id, self._fixed_bucket, key, quality, TaskStatus.FINISHED)
+        logger.info("submit_task: task_id=%s saved s3://%s/%s quality=%s status -> %s", task_id, self._fixed_bucket, save_key, quality, TaskStatus.FINISHED)
         return SubmitTaskResponse(quality=quality, wer=wer, wil=wil)
