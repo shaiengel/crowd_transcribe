@@ -216,11 +216,19 @@ def pick_and_start_audio(
     accent: int | None = None,
     language: int = 1,
     rabbi_id: int | None = None,
+    expiration_minutes: int = 120,
 ) -> tuple | None:
     import random
     conn = sqlite3.connect(db_path, timeout=10)
     try:
         conn.execute("BEGIN IMMEDIATE")
+        # Expire stale tasks before picking
+        conn.execute(
+            "UPDATE tasks SET status = 'EXPIRED' "
+            "WHERE status = 'STARTED' "
+            "AND datetime(started_at, '+' || ? || ' minutes') < datetime('now')",
+            (expiration_minutes,),
+        )
         if accent is not None:
             where = (
                 "media.maggid_id = maggid_data.id "

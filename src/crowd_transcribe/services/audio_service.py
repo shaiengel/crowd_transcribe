@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 class AudioService:
     def __init__(self, config: Config) -> None:
         self._db_path = config.sqlite_path
+        self._expiration_minutes = config.task_expiration_minutes
 
     def get_audio(self, media_id: str) -> Audio | None:
         logger.info("get_audio: media_id=%s", media_id)
@@ -49,6 +50,7 @@ class AudioService:
             accent=int(accent) if accent is not None else None,
             language=int(language),
             rabbi_id=rabbi_id,
+            expiration_minutes=self._expiration_minutes,
         )
         if row is None:
             raise NotFoundError("No available audio")

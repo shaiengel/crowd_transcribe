@@ -22,3 +22,4 @@ class Config:
     db_driver_windows: str = field(default_factory=lambda: os.getenv("DB_DRIVER_WINDOWS", "ODBC Driver 17 for SQL Server"))
     sqlite_path: str = field(default_factory=lambda: os.getenv("SQLITE_PATH", "media.db"))
     wer_threshold: float = field(default_factory=lambda: float(os.getenv("WER_THRESHOLD", "0.40")))
+    task_expiration_minutes: int = field(default_factory=lambda: int(os.getenv("TASK_EXPIRATION_MINUTES", "120")))
