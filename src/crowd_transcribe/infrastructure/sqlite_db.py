@@ -282,6 +282,70 @@ def pick_and_start_audio(
         conn.close()
 
 
+def start_specific_audio(
+    db_path: str,
+    task_id: str,
+    media_id: str,
+    expiration_minutes: int = 120,
+) -> tuple | None:
+    """Start a task for a specific media_id.
+    
+    Returns the media row if successful, None if media not found.
+    Raises ConflictError if media is in use (has non-expired STARTED task).
+    """
+    from crowd_transcribe.domain.exceptions import ConflictError
+    
+    conn = sqlite3.connect(db_path, timeout=10)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # Expire stale tasks before checking
+        conn.execute(
+            "UPDATE tasks SET status = 'EXPIRED' "
+            "WHERE status = 'STARTED' "
+            "AND datetime(started_at, '+' || ? || ' minutes') < datetime('now')",
+            (expiration_minutes,),
+        )
+        
+        # Check if media exists
+        row = conn.execute(
+            """SELECT media_id, url, maggid_description, massechet_name,
+                      daf_name, media_duration
+               FROM media WHERE media_id = ?""",
+            (media_id,),
+        ).fetchone()
+        
+        if row is None:
+            conn.execute("ROLLBACK")
+            return None
+        
+        # Check if media is in use (has active STARTED task)
+        active = conn.execute(
+            "SELECT 1 FROM tasks WHERE media_id = ? AND status = 'STARTED'",
+            (media_id,),
+        ).fetchone()
+        
+        if active:
+            conn.execute("ROLLBACK")
+            raise ConflictError(f"Media {media_id} is currently in use")
+        
+        # Create the task
+        conn.execute(
+            "INSERT INTO tasks (task_id, media_id, status, started_at) "
+            "VALUES (?, ?, 'STARTED', datetime('now'))",
+            (task_id, media_id),
+        )
+        
+        conn.execute("COMMIT")
+        return row
+    except ConflictError:
+        raise
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def task_exists(db_path: str, task_id: str) -> bool:
     with sqlite3.connect(db_path) as conn:
         return conn.execute(
@@ -380,19 +444,23 @@ def get_audio_row(db_path: str, media_id: str) -> tuple | None:
 
 
 _ACTIVE_TASK_SUBQUERY = (
-    "SELECT media_id FROM tasks WHERE status = 'STARTED' "
-    "OR (status = 'FINISHED' AND quality IS NOT 'BAD')"
+    "SELECT media_id FROM tasks WHERE status = 'STARTED'"
 )
 
 
-def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) -> tuple[int, list[tuple]]:
+def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
+    # Subquery to find media with non-expired STARTED tasks
+    active_tasks_subquery = (
+        "SELECT media_id FROM tasks WHERE status = 'STARTED' "
+        "AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')"
+    )
     where = (
         "media.maggid_id = maggid_data.id "
         "AND maggid_data.accent = ? "
         "AND maggid_data.language = ? "
-        f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+        f"AND media.media_id NOT IN ({active_tasks_subquery})"
     )
-    params = (accent, language)
+    params = (expiration_minutes, accent, language)
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(
             f"SELECT COUNT(*) FROM media JOIN maggid_data ON {where}",
@@ -407,16 +475,46 @@ def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1) 
     return total, rows
 
 
-def list_audio_rows(db_path: str) -> tuple[int, list[tuple]]:
+def list_audio_rows(db_path: str, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(
-            f"SELECT COUNT(*) FROM media WHERE media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+            "SELECT COUNT(*) FROM media"
         ).fetchone()[0]
         rows = conn.execute(
-            f"""SELECT media_id, url, maggid_description, massechet_name,
-                      daf_name, media_duration
+            """SELECT media.media_id, media.url, media.maggid_description, 
+                       media.massechet_name, media.daf_name, media.media_duration,
+                       CASE WHEN t.task_id IS NOT NULL THEN 1 ELSE 0 END as is_in_use
                FROM media
-               WHERE media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"""
+               LEFT JOIN (
+                   SELECT media_id, task_id 
+                   FROM tasks 
+                   WHERE status = 'STARTED' 
+                   AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')
+               ) t ON t.media_id = media.media_id""",
+            (expiration_minutes,),
+        ).fetchall()
+    return total, rows
+
+
+def list_audio_rows_by_rabbi(db_path: str, rabbi_id: int, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
+    with sqlite3.connect(db_path) as conn:
+        total: int = conn.execute(
+            "SELECT COUNT(*) FROM media WHERE maggid_id = ?",
+            (rabbi_id,),
+        ).fetchone()[0]
+        rows = conn.execute(
+            """SELECT media.media_id, media.url, media.maggid_description,
+                       media.massechet_name, media.daf_name, media.media_duration,
+                       CASE WHEN t.task_id IS NOT NULL THEN 1 ELSE 0 END as is_in_use
+               FROM media
+               LEFT JOIN (
+                   SELECT media_id, task_id 
+                   FROM tasks 
+                   WHERE status = 'STARTED' 
+                   AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')
+               ) t ON t.media_id = media.media_id
+               WHERE media.maggid_id = ?""",
+            (expiration_minutes, rabbi_id),
         ).fetchall()
     return total, rows
 

@@ -57,6 +57,7 @@ class AudioListItem(BaseModel):
     massechet_name: Optional[str] = None
     daf_name: Optional[str] = None
     duration: Optional[int] = None
+    is_in_use: bool = False
 
 
 class AudioList(BaseModel):
@@ -95,6 +96,7 @@ class ReserveAudioRequest(BaseModel):
     reading: Optional[MaggidAccent] = None
     language: Language = Language.HEBREW
     rabbi_id: Optional[int] = None
+    media_id: Optional[str] = None
 
 
 class RabbiListItem(BaseModel):

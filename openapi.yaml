@@ -108,6 +108,10 @@ components:
           type: ['string', 'null']
         duration:
           type: ['integer', 'null']
+        is_in_use:
+          type: boolean
+          default: false
+          description: True if an active (non-expired) task exists for this audio.
 
     AudioList:
       type: object
@@ -119,7 +123,7 @@ components:
             $ref: '#/components/schemas/AudioListItem'
         total:
           type: integer
-          description: Total available (unclaimed) audios.
+          description: Total audios matching the filter.
 
     RabbiListItem:
       type: object
@@ -212,12 +216,19 @@ paths:
   /audios/list:
     get:
       operationId: listAudios
-      summary: List unclaimed audios
-      description: Returns all audios with no active reservation or task.
+      summary: List audios
+      description: Returns all audios, with `is_in_use` flag indicating active tasks.
       tags: [audios]
+      parameters:
+        - name: rabbi_id
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Filter by specific rabbi (maggid) ID.
       responses:
         '200':
-          description: List of available audios.
+          description: List of audios.
           content:
             application/json:
               schema:
@@ -261,11 +272,13 @@ paths:
   /tasks/start:
     post:
       operationId: startTask
-      summary: Start a task for a random available audio
+      summary: Start a task for an audio
       description: |
-        Atomically picks a random available audio (no STARTED task) and creates
-        a STARTED task for it. The audio remains locked until the task is deleted
-        or submitted.
+        If `media_id` is provided, starts a task for that specific audio.
+        Otherwise, atomically picks a random available audio (no active STARTED task)
+        and creates a STARTED task for it.
+        
+        The audio remains locked until the task is deleted or submitted.
 
         Returns the audio details plus the `task_id` to use for subsequent calls.
       tags: [tasks]
@@ -276,6 +289,9 @@ paths:
             schema:
               type: object
               properties:
+                media_id:
+                  type: string
+                  description: Specific media ID to start a task for. If provided, other filters are ignored.
                 reading:
                   $ref: '#/components/schemas/MaggidAccent'
                 language:
@@ -291,8 +307,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/AudioReservation'
         '404':
-          description: No available audio matching the filters.
+          description: No available audio matching the filters, or media_id not found.
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: The specified media is currently in use (has an active task).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 
   /tasks/{id}:
     get:

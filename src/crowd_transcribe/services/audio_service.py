@@ -10,7 +10,9 @@ from crowd_transcribe.infrastructure.sqlite_db import (
     get_rabbi_list,
     list_audio_rows,
     list_audio_rows_by_accent,
+    list_audio_rows_by_rabbi,
     pick_and_start_audio,
+    start_specific_audio,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,9 +35,11 @@ class AudioService:
     def get_random_audio(self, accent: MaggidAccent | None = None, language: Language = Language.HEBREW) -> Audio:
         logger.info("get_random_audio: accent=%s language=%s", accent, language)
         if accent is not None:
-            _, rows = list_audio_rows_by_accent(self._db_path, int(accent), int(language))
+            _, rows = list_audio_rows_by_accent(self._db_path, int(accent), int(language), self._expiration_minutes)
         else:
-            _, rows = list_audio_rows(self._db_path)
+            _, all_rows = list_audio_rows(self._db_path, self._expiration_minutes)
+            # Filter out in-use items (is_in_use is at index 6)
+            rows = [r for r in all_rows if not r[6]]
         if not rows:
             raise NotFoundError("No available audio")
         r = random.choice(rows)
@@ -61,17 +65,38 @@ class AudioService:
             task_id=task_id,
         )
 
+    def start_audio(self, media_id: str) -> AudioReservation:
+        logger.info("start_audio: media_id=%s", media_id)
+        task_id = str(uuid.uuid4())
+        row = start_specific_audio(
+            self._db_path, task_id,
+            media_id=media_id,
+            expiration_minutes=self._expiration_minutes,
+        )
+        if row is None:
+            raise NotFoundError(f"Media {media_id} not found")
+        logger.info("start_audio: started media_id=%s task_id=%s", row[0], task_id)
+        return AudioReservation(
+            id=row[0], url=row[1], maggid_description=row[2],
+            massechet_name=row[3], daf_name=row[4], duration=row[5],
+            task_id=task_id,
+        )
+
     def list_rabbis(self) -> list[RabbiListItem]:
         rows = get_rabbi_list(self._db_path)
         return [RabbiListItem(id=r[0], name=r[1]) for r in rows]
 
-    def list_audios(self) -> AudioList:
-        logger.info("list_audios")
-        total, rows = list_audio_rows(self._db_path)
+    def list_audios(self, rabbi_id: int | None = None) -> AudioList:
+        logger.info("list_audios: rabbi_id=%s", rabbi_id)
+        if rabbi_id is not None:
+            total, rows = list_audio_rows_by_rabbi(self._db_path, rabbi_id, self._expiration_minutes)
+        else:
+            total, rows = list_audio_rows(self._db_path, self._expiration_minutes)
         logger.info("list_audios: returning %d/%d records", len(rows), total)
         data = [
             AudioListItem(id=r[0], maggid_description=r[2],
-                          massechet_name=r[3], daf_name=r[4], duration=r[5])
+                          massechet_name=r[3], daf_name=r[4], duration=r[5],
+                          is_in_use=bool(r[6]))
             for r in rows
         ]
         return AudioList(data=data, total=total)

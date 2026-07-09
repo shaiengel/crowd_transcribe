@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
-from crowd_transcribe.domain.exceptions import NotFoundError
+from crowd_transcribe.domain.exceptions import ConflictError, NotFoundError
 from crowd_transcribe.domain.schema import (
     Audio,
     AudioList,
@@ -30,9 +30,10 @@ def _audio_service(request: Request) -> AudioService:
 
 @router.get("/audios/list", response_model=AudioList)
 async def list_audios(
+    rabbi_id: int | None = None,
     svc: AudioService = Depends(_audio_service),
 ) -> AudioList:
-    return svc.list_audios()
+    return svc.list_audios(rabbi_id=rabbi_id)
 
 
 @router.get("/audios", response_model=Audio)
@@ -81,9 +82,14 @@ async def start_task(
     if body is None:
         body = ReserveAudioRequest()
     try:
-        reservation = svc.start_random_audio(accent=body.reading, language=body.language, rabbi_id=body.rabbi_id)
+        if body.media_id:
+            reservation = svc.start_audio(media_id=body.media_id)
+        else:
+            reservation = svc.start_random_audio(accent=body.reading, language=body.language, rabbi_id=body.rabbi_id)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="No available audio")
+    except ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     try:
