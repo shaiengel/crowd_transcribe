@@ -120,7 +120,12 @@ CREATE TABLE massechet (
 );  -- seeded with tractate name → Sefaria name mapping
 ```
 
-`list_audios` and `POST /tasks/start` exclude media that has a `STARTED` task or a `FINISHED` task with `quality` of `GOOD` or `NULL`. Media with a `FINISHED`+`BAD` task re-enters the pool for another volunteer to retry.
+**Audio selection priority (`POST /tasks/start`):**
+1. **First:** Pick from media without any `FINISHED` task (and not currently `STARTED`)
+2. **Second:** If all media have a `FINISHED` task, pick from any not currently `STARTED`
+3. **Final:** If all media are `STARTED`, pick any media at all — ensures the client always gets something
+
+`list_audios` excludes media that has a `STARTED` task or a `FINISHED` task with `quality` of `GOOD` or `NULL`. Media with a `FINISHED`+`BAD` task re-enters the pool for another volunteer to retry.
 
 ---
 

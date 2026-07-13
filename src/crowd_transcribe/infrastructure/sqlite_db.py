@@ -229,12 +229,18 @@ def pick_and_start_audio(
             "AND datetime(started_at, '+' || ? || ' minutes') < datetime('now')",
             (expiration_minutes,),
         )
+
+        # Subquery to exclude media with FINISHED tasks
+        finished_subquery = "SELECT media_id FROM tasks WHERE status = 'FINISHED'"
+
+        # First try: media without any FINISHED task (and not currently STARTED)
         if accent is not None:
             where = (
                 "media.maggid_id = maggid_data.id "
                 "AND maggid_data.accent = ? "
                 "AND maggid_data.language = ? "
-                f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+                f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY}) "
+                f"AND media.media_id NOT IN ({finished_subquery})"
             )
             params: list = [accent, language]
             if rabbi_id is not None:
@@ -247,7 +253,10 @@ def pick_and_start_audio(
                 params,
             ).fetchall()
         else:
-            where_clause = f"media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+            where_clause = (
+                f"media_id NOT IN ({_ACTIVE_TASK_SUBQUERY}) "
+                f"AND media_id NOT IN ({finished_subquery})"
+            )
             params_no_accent: list = []
             if rabbi_id is not None:
                 where_clause += " AND maggid_id = ?"
@@ -259,6 +268,71 @@ def pick_and_start_audio(
                    WHERE {where_clause}""",
                 params_no_accent,
             ).fetchall()
+
+        # Fallback: if all media have FINISHED tasks, pick from any available
+        if not rows:
+            if accent is not None:
+                where_fallback = (
+                    "media.maggid_id = maggid_data.id "
+                    "AND maggid_data.accent = ? "
+                    "AND maggid_data.language = ? "
+                    f"AND media.media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+                )
+                params_fallback: list = [accent, language]
+                if rabbi_id is not None:
+                    where_fallback += " AND media.maggid_id = ?"
+                    params_fallback.append(rabbi_id)
+                rows = conn.execute(
+                    f"""SELECT media.media_id, media.url, media.maggid_description,
+                               media.massechet_name, media.daf_name, media.media_duration
+                        FROM media JOIN maggid_data ON {where_fallback}""",
+                    params_fallback,
+                ).fetchall()
+            else:
+                where_clause_fallback = f"media_id NOT IN ({_ACTIVE_TASK_SUBQUERY})"
+                params_no_accent_fallback: list = []
+                if rabbi_id is not None:
+                    where_clause_fallback += " AND maggid_id = ?"
+                    params_no_accent_fallback.append(rabbi_id)
+                rows = conn.execute(
+                    f"""SELECT media_id, url, maggid_description, massechet_name,
+                              daf_name, media_duration
+                       FROM media
+                       WHERE {where_clause_fallback}""",
+                    params_no_accent_fallback,
+                ).fetchall()
+
+        # Final fallback: if all media are STARTED, pick any media at all
+        if not rows:
+            if accent is not None:
+                where_any = (
+                    "media.maggid_id = maggid_data.id "
+                    "AND maggid_data.accent = ? "
+                    "AND maggid_data.language = ?"
+                )
+                params_any: list = [accent, language]
+                if rabbi_id is not None:
+                    where_any += " AND media.maggid_id = ?"
+                    params_any.append(rabbi_id)
+                rows = conn.execute(
+                    f"""SELECT media.media_id, media.url, media.maggid_description,
+                               media.massechet_name, media.daf_name, media.media_duration
+                        FROM media JOIN maggid_data ON {where_any}""",
+                    params_any,
+                ).fetchall()
+            else:
+                params_any_no_accent: list = []
+                where_any_clause = "1=1"
+                if rabbi_id is not None:
+                    where_any_clause = "maggid_id = ?"
+                    params_any_no_accent.append(rabbi_id)
+                rows = conn.execute(
+                    f"""SELECT media_id, url, maggid_description, massechet_name,
+                              daf_name, media_duration
+                       FROM media
+                       WHERE {where_any_clause}""",
+                    params_any_no_accent,
+                ).fetchall()
 
         if not rows:
             conn.execute("ROLLBACK")
