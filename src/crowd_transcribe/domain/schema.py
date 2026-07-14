@@ -35,6 +35,7 @@ class Language(int, Enum):
 class TaskStatus(str, Enum):
     STARTED = "STARTED"
     FINISHED = "FINISHED"
+    EXPIRED = "EXPIRED"
 
 
 class Audio(BaseModel):

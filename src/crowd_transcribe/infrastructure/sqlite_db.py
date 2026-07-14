@@ -230,10 +230,10 @@ def pick_and_start_audio(
             (expiration_minutes,),
         )
 
-        # Subquery to exclude media with FINISHED tasks
-        finished_subquery = "SELECT media_id FROM tasks WHERE status = 'FINISHED'"
+        # Subquery to exclude media with FINISHED or EXPIRED tasks (treated the same)
+        finished_subquery = "SELECT media_id FROM tasks WHERE status IN ('FINISHED', 'EXPIRED')"
 
-        # First try: media without any FINISHED task (and not currently STARTED)
+        # First try: media without any FINISHED/EXPIRED task (and not currently STARTED)
         if accent is not None:
             where = (
                 "media.maggid_id = maggid_data.id "
