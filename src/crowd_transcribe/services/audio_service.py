@@ -89,9 +89,9 @@ class AudioService:
     def list_audios(self, rabbi_id: int | None = None) -> AudioList:
         logger.info("list_audios: rabbi_id=%s", rabbi_id)
         if rabbi_id is not None:
-            total, rows = list_audio_rows_by_rabbi(self._db_path, rabbi_id, self._expiration_minutes)
+            total, rows = list_audio_rows_by_rabbi(self._db_path, rabbi_id)
         else:
-            total, rows = list_audio_rows(self._db_path, self._expiration_minutes)
+            total, rows = list_audio_rows(self._db_path)
         logger.info("list_audios: returning %d/%d records", len(rows), total)
         data = [
             AudioListItem(id=r[0], maggid_description=r[2],

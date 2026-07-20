@@ -549,48 +549,77 @@ def list_audio_rows_by_accent(db_path: str, accent: int = 4, language: int = 1, 
     return total, rows
 
 
-def list_audio_rows(db_path: str, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
+def list_audio_rows(db_path: str) -> tuple[int, list[tuple]]:
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(
             "SELECT COUNT(*) FROM media"
         ).fetchone()[0]
         rows = conn.execute(
-            """SELECT media.media_id, media.url, media.maggid_description, 
-                       media.massechet_name, media.daf_name, media.media_duration,
-                       CASE WHEN t.task_id IS NOT NULL THEN 1 ELSE 0 END as is_in_use
-               FROM media
-               LEFT JOIN (
-                   SELECT media_id, task_id 
-                   FROM tasks 
-                   WHERE status = 'STARTED' 
-                   AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')
-               ) t ON t.media_id = media.media_id""",
-            (expiration_minutes,),
+            """SELECT media_id, url, maggid_description, 
+                      massechet_name, daf_name, media_duration
+               FROM media"""
         ).fetchall()
     return total, rows
 
+# OLD VERSION with is_in_use JOIN (unused - is_in_use was hardcoded to False in audio_service):
+# def list_audio_rows(db_path: str, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
+#     with sqlite3.connect(db_path) as conn:
+#         total: int = conn.execute(
+#             "SELECT COUNT(*) FROM media"
+#         ).fetchone()[0]
+#         rows = conn.execute(
+#             """SELECT media.media_id, media.url, media.maggid_description, 
+#                        media.massechet_name, media.daf_name, media.media_duration,
+#                        CASE WHEN t.media_id IS NOT NULL THEN 1 ELSE 0 END as is_in_use
+#                FROM media
+#                LEFT JOIN (
+#                    SELECT DISTINCT media_id
+#                    FROM tasks 
+#                    WHERE status = 'STARTED' 
+#                    AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')
+#                ) t ON t.media_id = media.media_id""",
+#             (expiration_minutes,),
+#         ).fetchall()
+#     return total, rows
 
-def list_audio_rows_by_rabbi(db_path: str, rabbi_id: int, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
+
+def list_audio_rows_by_rabbi(db_path: str, rabbi_id: int) -> tuple[int, list[tuple]]:
     with sqlite3.connect(db_path) as conn:
         total: int = conn.execute(
             "SELECT COUNT(*) FROM media WHERE maggid_id = ?",
             (rabbi_id,),
         ).fetchone()[0]
         rows = conn.execute(
-            """SELECT media.media_id, media.url, media.maggid_description,
-                       media.massechet_name, media.daf_name, media.media_duration,
-                       CASE WHEN t.task_id IS NOT NULL THEN 1 ELSE 0 END as is_in_use
+            """SELECT media_id, url, maggid_description,
+                      massechet_name, daf_name, media_duration
                FROM media
-               LEFT JOIN (
-                   SELECT media_id, task_id 
-                   FROM tasks 
-                   WHERE status = 'STARTED' 
-                   AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')
-               ) t ON t.media_id = media.media_id
-               WHERE media.maggid_id = ?""",
-            (expiration_minutes, rabbi_id),
+               WHERE maggid_id = ?""",
+            (rabbi_id,),
         ).fetchall()
     return total, rows
+
+# OLD VERSION with is_in_use JOIN (unused - is_in_use was hardcoded to False in audio_service):
+# def list_audio_rows_by_rabbi(db_path: str, rabbi_id: int, expiration_minutes: int = 120) -> tuple[int, list[tuple]]:
+#     with sqlite3.connect(db_path) as conn:
+#         total: int = conn.execute(
+#             "SELECT COUNT(*) FROM media WHERE maggid_id = ?",
+#             (rabbi_id,),
+#         ).fetchone()[0]
+#         rows = conn.execute(
+#             """SELECT media.media_id, media.url, media.maggid_description,
+#                        media.massechet_name, media.daf_name, media.media_duration,
+#                        CASE WHEN t.media_id IS NOT NULL THEN 1 ELSE 0 END as is_in_use
+#                FROM media
+#                LEFT JOIN (
+#                    SELECT DISTINCT media_id
+#                    FROM tasks 
+#                    WHERE status = 'STARTED' 
+#                    AND datetime(started_at, '+' || ? || ' minutes') > datetime('now')
+#                ) t ON t.media_id = media.media_id
+#                WHERE media.maggid_id = ?""",
+#             (expiration_minutes, rabbi_id),
+#         ).fetchall()
+#     return total, rows
 
 
 def get_task_enrichment(db_path: str, task_id: str) -> tuple | None:
