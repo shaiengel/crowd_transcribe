@@ -13,7 +13,6 @@ from crowd_transcribe.infrastructure.sqlite_db import (
     get_active_task_for_media,
     get_media_url,
     get_task_enrichment,
-    get_task_media_and_quality,
     get_task_media_id,
     get_task_status,
     insert_task,
@@ -49,21 +48,20 @@ class TasksService:
         logger.info("create_task: created task_id=%s status=%s", task_id, TaskStatus.STARTED)
         return task_id
 
-    def _vtt_bucket(self, quality: str | None) -> str:
-        return self._fixed_bucket if quality == "GOOD" else self._bucket
-
     def get_task(self, task_id: str) -> TaskDetail:
         logger.info("get_task: task_id=%s", task_id)
-        row = get_task_media_and_quality(self._db_path, task_id)
-        if row is None:
+        media_id = get_task_media_id(self._db_path, task_id)
+        if media_id is None:
             logger.warning("get_task: task_id=%s not found", task_id)
             raise NotFoundError(f"task {task_id} not found")
-        media_id, quality = row
         url = get_media_url(self._db_path, media_id)
         key = f"{media_id}.vtt"
-        bucket = self._vtt_bucket(quality)
+        if self._s3.exists(self._fixed_bucket, key):
+            bucket = self._fixed_bucket
+        else:
+            bucket = self._bucket
         vtt = self._s3.get_content(bucket, key)
-        logger.info("get_task: task_id=%s quality=%s — VTT served from %s", task_id, quality, bucket)
+        logger.info("get_task: task_id=%s — VTT served from %s", task_id, bucket)
         return TaskDetail(media_link=url, subtitles=vtt)
 
     def enrich_task(self, task_id: str) -> TaskEnrichment:

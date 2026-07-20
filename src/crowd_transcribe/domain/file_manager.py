@@ -16,3 +16,8 @@ class FileManager(ABC):
     def put_content(self, bucket: str, key: str, content: str) -> None:
         """Upload text content to an S3 object."""
         ...
+
+    @abstractmethod
+    def exists(self, bucket: str, key: str) -> bool:
+        """Check if an object exists in the bucket."""
+        ...

@@ -54,3 +54,16 @@ class S3Client(FileManager):
         except BotoCoreError as e:
             logger.error("put_content s3://%s/%s failed: %s", bucket, key, e)
             raise
+
+    def exists(self, bucket: str, key: str) -> bool:
+        try:
+            self._client.head_object(Bucket=bucket, Key=key)
+            return True
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "404":
+                return False
+            logger.error("exists s3://%s/%s failed: %s", bucket, key, e.response["Error"]["Message"])
+            raise
+        except BotoCoreError as e:
+            logger.error("exists s3://%s/%s failed: %s", bucket, key, e)
+            raise
