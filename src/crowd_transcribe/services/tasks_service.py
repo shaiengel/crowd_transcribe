@@ -37,10 +37,10 @@ class TasksService:
         if get_media_url(self._db_path, media_id) is None:
             logger.warning("create_task: media_id=%s not found", media_id)
             raise NotFoundError(f"media_id {media_id} not found")
-        existing = get_active_task_for_media(self._db_path, media_id)
-        if existing:
-            logger.warning("create_task: media_id=%s already has active task_id=%s", media_id, existing)
-            raise ConflictError(f"media_id {media_id} already has an active task")
+        # existing = get_active_task_for_media(self._db_path, media_id)
+        # if existing:
+        #     logger.warning("create_task: media_id=%s already has active task_id=%s", media_id, existing)
+        #     raise ConflictError(f"media_id {media_id} already has an active task")
         while True:
             task_id = str(uuid.uuid4())
             if not task_exists(self._db_path, task_id):

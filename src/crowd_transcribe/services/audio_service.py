@@ -96,7 +96,7 @@ class AudioService:
         data = [
             AudioListItem(id=r[0], maggid_description=r[2],
                           massechet_name=r[3], daf_name=r[4], duration=r[5],
-                          is_in_use=bool(r[6]))
+                          is_in_use=False)
             for r in rows
         ]
         return AudioList(data=data, total=total)

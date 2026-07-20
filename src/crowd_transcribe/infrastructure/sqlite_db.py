@@ -398,9 +398,9 @@ def start_specific_audio(
             (media_id,),
         ).fetchone()
         
-        if active:
-            conn.execute("ROLLBACK")
-            raise ConflictError(f"Media {media_id} is currently in use")
+        # if active:
+        #     conn.execute("ROLLBACK")
+        #     raise ConflictError(f"Media {media_id} is currently in use")
         
         # Create the task
         conn.execute(
