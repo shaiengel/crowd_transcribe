@@ -57,7 +57,7 @@ class TasksService:
         url = get_media_url(self._db_path, media_id)
         key = f"{media_id}.vtt"
         if self._s3.exists(self._fixed_bucket, key):
-            bucket = self._bucket
+            bucket = self._fixed_bucket
         else:
             bucket = self._bucket
         vtt = self._s3.get_content(bucket, key)
